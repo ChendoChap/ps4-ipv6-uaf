@@ -15,10 +15,13 @@ function swapkeyval(json){
 /* A short ass map of system call names -> number, you shouldn't need to touch this */
 window.syscallnames =
 {
+  "sys_write": 4,
+  "sys_close": 6,
   "sys_setuid": 23,
   "sys_ioctl": 54,
   "sys_mprotect": 74,
   "sys_socket": 97,
+  "sys_connect": 98,
   "sys_setsockopt": 105,
   "sys_getsockopt": 118,
   "sys_nanosleep": 240,
