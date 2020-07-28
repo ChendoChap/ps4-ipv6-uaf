@@ -900,6 +900,7 @@ window.stage2_ = function () {
       //FFFFFFFF96EEE620    31 C0 C3
       mov dword ptr [rdi + 0x237f3a], 0x0001C1E9
       mov byte ptr [rdi + 0x237f3e], 0x00
+      mov dword ptr [rdi + 0x2B2620], 0xC3C03148
       //syscall 11
       //FFFFFFFF97CB8820    02 00 00 00 00 00 00 00
       //FFFFFFFF97CB8828    0xFFFFFFFF96C4F460
@@ -915,7 +916,7 @@ window.stage2_ = function () {
       //enable wp
       or rax, 0x10000
       mov cr0, rax
-      xor eax, eax
+      mov rax, 0x8080808080808080
       ret
   */
 
@@ -977,23 +978,26 @@ window.stage2_ = function () {
   exec_writer[42] = 0xE900237F;
   exec_writer[43] = 0xC60001C1;
   exec_writer[44] = 0x237F3E87;
-  exec_writer[45] = 0xC7480000;
-  exec_writer[46] = 0x07C82087;
-  exec_writer[47] = 0x00000201;
-  exec_writer[48] = 0xC6C74800;
-  exec_writer[49] = 0x00013460;
-  exec_writer[50] = 0x48FE0148;
-  exec_writer[51] = 0xC828B789;
-  exec_writer[52] = 0xBE480107;
-  exec_writer[53] = 0x00000000;
-  exec_writer[54] = 0x00000001;
-  exec_writer[55] = 0x48B78948;
-  exec_writer[56] = 0x480107C8;
-  exec_writer[57] = 0x0100000D;
-  exec_writer[58] = 0xC0220F00;
-  exec_writer[59] = 0x8080B848;
-  exec_writer[60] = 0x00008080;
-  exec_writer[61] = 0x90C30000;
+  exec_writer[45] = 0x87C70000;
+  exec_writer[46] = 0x002B2620;
+  exec_writer[47] = 0xC3C03148;
+  exec_writer[48] = 0x2087C748;
+  exec_writer[49] = 0x020107C8;
+  exec_writer[50] = 0x48000000;
+  exec_writer[51] = 0x3460C6C7;
+  exec_writer[52] = 0x01480001;
+  exec_writer[53] = 0xB78948FE;
+  exec_writer[54] = 0x0107C828;
+  exec_writer[55] = 0x0000BE48;
+  exec_writer[56] = 0x00010000;
+  exec_writer[57] = 0x89480000;
+  exec_writer[58] = 0x07C848B7;
+  exec_writer[59] = 0x000D4801;
+  exec_writer[60] = 0x0F000100;
+  exec_writer[61] = 0xB848C022;
+  exec_writer[62] = 0x80808080;
+  exec_writer[63] = 0x00000000;
+  exec_writer[64] = 0x909090C3;
 
 
   p.write8(write_address.add32(0x2), this_master_sock_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
