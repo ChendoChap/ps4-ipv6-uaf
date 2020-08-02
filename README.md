@@ -1,7 +1,7 @@
-# PS4 6.20 Kernel Exploit
+# PS4 6.50 - 6.51 Kernel Exploit
 ---
 ## Summary
-In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 on 6.20. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
+In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 on 6.50 - 6.51. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
 
 This bug was originally discovered by [Fire30](https://twitter.com/fire30), and subsequently found by [Andy Nguyen](https://twitter.com/theflow0/)
 
@@ -23,3 +23,4 @@ The following patches are applied to the kernel:
 - [kiwidog](https://twitter.com/kd_tech_) - advice
 - [Fire30](https://twitter.com/fire30) - [bad_hoist](https://github.com/Fire30/bad_hoist)
 - [Andy Nguyen](https://twitter.com/theflow0/) - [disclosed exploit code](https://hackerone.com/reports/826026)
+- [SocraticBliss](https://twitter.com/SocraticBliss) - Shakespeare dev & crash test dummy
