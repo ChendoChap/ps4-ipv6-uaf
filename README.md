@@ -23,3 +23,4 @@ The following patches are applied to the kernel:
 - [kiwidog](https://twitter.com/kd_tech_) - advice
 - [Fire30](https://twitter.com/fire30) - [bad_hoist](https://github.com/Fire30/bad_hoist)
 - [Andy Nguyen](https://twitter.com/theflow0/) - [disclosed exploit code](https://hackerone.com/reports/826026)
+- [SocraticBliss](https://twitter.com/SocraticBliss) - Shakespeare dev & crash test dummy
