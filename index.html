@@ -34,20 +34,6 @@
       transform: translate(-50%, -50%);
     }
 
-    .credits {
-      overflow: hidden;
-      position: fixed;
-      position: absolute;
-      top: 90%;
-      left: 50%;
-
-      font-size: 16px;
-      font-family: sans-serif;
-      text-align: center;
-
-      transform: translate(-50%, -90%);
-    }
-
     @-webkit-keyframes spin {
       0% { -webkit-transform: rotate(0deg); }
       100% { -webkit-transform: rotate(360deg); }
@@ -55,21 +41,25 @@
   </style>
 </head>
 <body style="margin:0;background-color:#050505;">
+  <script src="./rop.js"></script>
+  <script src="./userland.js"></script>
   <script>
     window.didload = 0;
     window.didpost = 0;
 
     window.onload = function () {
       window.didload = 1;
-      if (window.didpost == 1)
-        setTimeout(window.stage2, 1500);
+      if (window.didpost == 1) {
+        setTimeout(stage2, 1500);
+      }
     }
-    window.postExpl = function () {
+    function nextStage() {
       window.didpost = 1;
-      if (window.didload == 1)
-        setTimeout(window.stage2, 1500);
+      if (window.didload == 1) {
+        setTimeout(stage2, 1500);
+      }
     }
-
+    
     function allset() {
       document.getElementById("loader").style.display = "none";
       document.getElementById("awaiting").style.display = "none";
@@ -81,10 +71,6 @@
       document.getElementById("awaiting").style.display = "block";
     }
 
-    function fail(info) {
-      document.getElementById("loader").style.display = "none";
-      document.getElementById("fail").style.display = "block";
-    }
   </script>
 
   <div id="loader" class="loader"></div>
@@ -104,11 +90,6 @@
   <div id="badfw" class="info" style="display:none;">
     Only firmware 5.05 is supported!
   </div>
-
-  <script src="./rop.js"></script>
-  <script src="./syscalls.js"></script>
   <script src="./expl.js"></script>
-  <script src="./userland.js"></script>
-  <pre id="console"></pre>
 </body>
 </html>
