@@ -67,6 +67,27 @@ function int64(low, hi) {
         return new int64(new_lo, new_hi);
     }
 
+    this.add64 = function(val) {
+        var new_lo = (((this.low >>> 0) + val.low) & 0xFFFFFFFF) >>> 0;
+        var new_hi = (this.hi >>> 0);
+
+        if (new_lo > (this.low) & 0xFFFFFFFF) {
+            new_hi++;
+        }
+        new_hi = (((new_hi >>> 0) + val.hi) & 0xFFFFFFFF) >>> 0;
+        return new int64(new_lo, new_hi);
+    }
+    this.sub64 = function(val) {
+        var new_lo = (((this.low >>> 0) - val.low) & 0xFFFFFFFF) >>> 0;
+        var new_hi = (this.hi >>> 0);
+
+        if (new_lo > (this.low) & 0xFFFFFFFF) {
+            new_hi--;
+        }
+        new_hi = (((new_hi >>> 0) - val.hi) & 0xFFFFFFFF) >>> 0;
+        return new int64(new_lo, new_hi);
+    }
+
     this.sub32inplace = function (val) {
         var new_lo = (((this.low >>> 0) - val) & 0xFFFFFFFF) >>> 0;
         var new_hi = (this.hi >>> 0);
