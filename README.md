@@ -1,7 +1,7 @@
-# PS4 5.05 - 6.72 Kernel Exploit
+# PS4 5.05 - 7.02 Kernel Exploit
 ---
 ## Summary
-In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 for firmwares 5.05 - 6.72. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
+In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 for firmwares 7.00 - 7.02. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
 
 This bug was originally discovered by [Fire30](https://twitter.com/fire30), and subsequently found by [Andy Nguyen](https://twitter.com/theflow0/)
 
@@ -14,6 +14,7 @@ This bug was originally discovered by [Fire30](https://twitter.com/fire30), and 
 * [6.20](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.20)
 * [6.50 - 6.51](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.50-6.51)
 * [6.70 - 6.72](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.70-6.72)
+* [7.00 - 7.02](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/7.00-7.02)
 
 ## Patches Included
 The following patches are applied to the kernel:
@@ -36,3 +37,6 @@ The following patches are applied to the kernel:
 - [Fire30](https://twitter.com/fire30) - [bad_hoist](https://github.com/Fire30/bad_hoist)
 - [Andy Nguyen](https://twitter.com/theflow0/) - [disclosed exploit code](https://hackerone.com/reports/826026)
 - [SocraticBliss](https://twitter.com/SocraticBliss) - Shakespeare dev & crash test dummy
+- [Znullptr](https://twitter.com/Znullptr) - drunk.dev
+- [synacktiv](https://www.synacktiv.com) - [webkit exploit](https://www.synacktiv.com/publications/this-is-for-the-pwners-exploiting-a-webkit-0-day-in-playstation-4.html)
+- [sleirsgoevy](https://twitter.com/sleirsgoevy) - ^ ported webkit exploit to 7.02 (and add addrof js prim)
