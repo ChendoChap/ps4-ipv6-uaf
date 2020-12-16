@@ -1,19 +1,9 @@
-# PS4 5.05 - 6.72 Kernel Exploit
+# PS4 7.00 - 7.02 Kernel Exploit
 ---
 ## Summary
-In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 for firmwares 5.05 - 6.72. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
+In this project you will find a full implementation of the "ipv6 uaf" kernel exploit for the PlayStation 4 on 7.00 - 7.02. It will allow you to run arbitrary code as kernel, to allow jailbreaking and kernel-level modifications to the system. will launch the usual payload launcher (on port 9020).
 
 This bug was originally discovered by [Fire30](https://twitter.com/fire30), and subsequently found by [Andy Nguyen](https://twitter.com/theflow0/)
-
-## Implementations
-* [5.05](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/5.05)
-* [5.50](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/5.50)
-* [5.53](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/5.53)
-* [5.55 - 5.56](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/5.55-5.56)
-* [6.00 - 6.02](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.00-6.02)
-* [6.20](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.20)
-* [6.50 - 6.51](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.50-6.51)
-* [6.70 - 6.72](https://github.com/ChendoChap/ps4-ipv6-uaf/tree/6.70-6.72)
 
 ## Patches Included
 The following patches are applied to the kernel:
@@ -22,12 +12,10 @@ The following patches are applied to the kernel:
 3) Dynamic Resolving (`sys_dynlib_dlsym`) allowed from any process
 4) Custom system call #11 (`kexec()`) to execute arbitrary code in kernel mode
 5) Allow unprivileged users to call `setuid(0)` successfully. Works as a status check, doubles as a privilege escalation.
-
+6) (`sys_dynlib_load_prx`) patch
 ## Notes
 - The page will crash on successful kernel exploitation, this is normal
-- There are a few races involved with this exploit, losing one of them and attempting the exploit again might not immediately crash the system but stability will take a hit, upon seeing an '[ERROR] ...' alert it is best to reboot the system.
-- 6.xx's webkit side is occasionally unstable atm and may trigger a 'few' extra OOM's
-- the payload loader does not mmap at a static address, make sure payloads are made with this in mind.
+- There are a few races involved with this exploit, losing one of them and attempting the exploit again might not immediately crash the system but stability will take a hit.
 
 ## Contributors
 
@@ -36,3 +24,6 @@ The following patches are applied to the kernel:
 - [Fire30](https://twitter.com/fire30) - [bad_hoist](https://github.com/Fire30/bad_hoist)
 - [Andy Nguyen](https://twitter.com/theflow0/) - [disclosed exploit code](https://hackerone.com/reports/826026)
 - [SocraticBliss](https://twitter.com/SocraticBliss) - Shakespeare dev & crash test dummy
+- [Znullptr](https://twitter.com/Znullptr) - drunk.dev
+- [synacktiv](https://www.synacktiv.com) - [webkit exploit](https://www.synacktiv.com/publications/this-is-for-the-pwners-exploiting-a-webkit-0-day-in-playstation-4.html)
+- [sleirsgoevy](https://twitter.com/sleirsgoevy) - ^ ported webkit exploit to 7.02 (and add addrof js prim)
