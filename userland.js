@@ -799,7 +799,7 @@ function stage3() {
   exec_writer[71] = 0x0000AF8C;
   exec_writer[72] = 0xD8B78948;
   exec_writer[73] = 0xC70111AE;
-  exec_writer[74] = 0x11AEF887;
+  exec_writer[74] = 0x11AEFC87;
   exec_writer[75] = 0x00000101;
   exec_writer[76] = 0x000D4800;
   exec_writer[77] = 0x0F000100;
@@ -913,7 +913,7 @@ mov dword ptr [rdi + 0x4003F0], 0xC3C03148
 mov qword ptr [rdi + 0x111AED0], 0x2
 lea rsi, [rdi + 0xAF8C]
 mov qword ptr [rdi + 0x111AED8], rsi
-mov dword ptr [rdi + 0x111AEF8], 0x1
+mov dword ptr [rdi + 0x111AEFC], 0x1
 
 //enable wp
 or rax, 0x10000
